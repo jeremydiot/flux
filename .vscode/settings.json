@@ -1,0 +1,6 @@
+{
+  "editor.detectIndentation": false,
+  "editor.tabSize": 2,
+  "java.compile.nullAnalysis.mode": "automatic",
+  "java.format.settings.url": ".vscode/java-formatter.xml"
+}
