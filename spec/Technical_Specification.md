@@ -132,7 +132,7 @@ The FLUX API leverages standard HTTP/1.1 (or HTTP/2) semantics for real-time str
 #### 5.2.1. HTTP Methods
 - **`GET /api/v1/flux/{fluxId}`**: Used by the client to pull/subscribe to a data flux from the server.
 - **`POST /api/v1/flux`**: Used by the client to push a new chunked data flux to the server.
-- **`POST /api/v1/flux/{fluxId}/ack`**: Used to explicitly send an Acknowledgement message (though ACK can also be returned as the final HTTP response to a push/pull).
+- **`POST /api/v1/flux/{fluxId}/ack`**: Used to explicitly send an Acknowledgement message (though ACK can also be returned as the final HTTP response to a pull).
 
 #### 5.2.2. HTTP Status Codes
 - **`200 OK`**: Successful completion of a stream or acknowledgement.

@@ -30,8 +30,22 @@ public class FluxClientImpl<T> implements FluxClient<T> {
       if (res.status().code() >= 400) {
         return Flux.error(new FluxException("Failed to pull flux: " + res.status().code()));
       }
-      return this.dataCodec.decodeFlux(connection.inbound().receive());
+      return this.dataCodec.decodeFlux(connection.inbound().receive())
+          .doOnComplete(() -> sendAck(fluxId, "SUCCESS"))
+          .doOnError(_ -> sendAck(fluxId, "FAILED"))
+          .doOnCancel(() -> sendAck(fluxId, "PARTIAL"));
     });
+  }
+
+  private void sendAck(final String fluxId, final String status) {
+    final Acknowledgement ack = Acknowledgement.builder().fluxId(fluxId).status(status).build();
+    this.httpClient
+        .headers(h -> h.add("Content-Type", "application/json"))
+        .post()
+        .uri("/api/v1/flux/" + fluxId + "/ack")
+        .send(Mono.just(this.ackCodec.encode(ack)))
+        .response()
+        .subscribe();
   }
 
   @Override

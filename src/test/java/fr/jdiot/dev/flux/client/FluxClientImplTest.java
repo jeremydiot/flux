@@ -35,7 +35,8 @@ public class FluxClientImplTest {
                   return res.status(500).send().then();
                 }
               });
-            }))
+            })
+            .post("/api/v1/flux/{fluxId}/ack", (req, res) -> res.status(200).send()))
         .bindNow();
 
     final FluxProperties properties = new FluxProperties();
