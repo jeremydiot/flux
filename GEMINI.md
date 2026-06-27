@@ -28,6 +28,7 @@ FLUX is an java api based to Netty Project Reactor. It allows to exchange data b
 - Max connection per server
 - Pool size for Flux Stream
 - Back pressure size
+- Keep alive connection
 
 ## 2. Technical stack
 
@@ -52,6 +53,7 @@ flux/
 │   │   │       ├── core/        # Core logic, flux pooling, back pressure
 │   │   │       ├── config/      # Chunk size, retry, timeout configs
 │   │   │       ├── security/    # TLS, Authentication
+│   │   │       ├── codec/       # High-performance data serialization & deserialization
 │   │   │       └── exception/   # Custom API exceptions
 │   │   └── resources/
 │   │       └── logback.xml      # Logging configuration

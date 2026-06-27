@@ -39,6 +39,13 @@ The system supports the following highly tunable properties:
 - Full support for HTTPS (TLS) for encrypted data exchange.
 - Extensible authentication mechanism to validate client identities on the server.
 
+### 3.3. Performance & Serialization Constraints
+To guarantee high speed and efficient performance during data transfer, the following strict constraints must be applied:
+- **Zero-Copy Data Transfer**: Utilize Project Reactor Netty's zero-copy capabilities wherever possible to avoid unnecessary data copying between user and kernel space.
+- **Efficient Serialization/Deserialization**: Use high-performance, low-latency serialization libraries that minimize CPU cycles and memory footprint.
+- **Memory Management**: Minimize object allocation during the flux stream processing to reduce Garbage Collection (GC) pauses. Use direct `ByteBuf` implementations for native memory allocation.
+- **Payload Compression**: Employ lightweight compression algorithms (e.g., LZ4 or Zstd) for large chunked data to optimize bandwidth transfer speed without sacrificing CPU overhead.
+
 ## 4. API Usage Scenarios & Sequence Diagrams
 
 ### 4.1. Pull Scenario
@@ -91,8 +98,66 @@ sequenceDiagram
     S-->>C2: 6. Acknowledge reception of all chunked data to C2
 ```
 
-## 5. Development & Testing Guidelines
+## 5. Message Structures
+
+To ensure reliable communication between clients and the server, structured messages are exchanged.
+
+### 5.1. Acknowledge (ACK) Message
+The Acknowledge message is sent by the receiver (client or server) to confirm the successful reception of all data chunks for a specific flux. It is formatted as a JSON payload.
+
+**Example Payload:**
+```json
+{
+  "fluxId": "123e4567-e89b-12d3-a456-426614174000",
+  "status": "SUCCESS",
+  "receivedChunks": 150,
+  "totalBytes": 2048576,
+  "timestamp": "2026-06-27T10:30:00Z",
+  "message": "All chunked data received successfully."
+}
+```
+
+**Fields:**
+- `fluxId` (String): Unique identifier of the data flux.
+- `status` (String): Status of the reception (`SUCCESS`, `PARTIAL`, `FAILED`).
+- `receivedChunks` (Integer): Total number of chunks successfully received.
+- `totalBytes` (Long): Total payload size received in bytes.
+- `timestamp` (String): ISO-8601 timestamp of when the acknowledgement was generated.
+- `message` (String): Optional human-readable status message.
+
+### 5.2. HTTP Protocol Specifications
+
+The FLUX API leverages standard HTTP/1.1 (or HTTP/2) semantics for real-time streaming using Project Reactor Netty.
+
+#### 5.2.1. HTTP Methods
+- **`GET /api/v1/flux/{fluxId}`**: Used by the client to pull/subscribe to a data flux from the server.
+- **`POST /api/v1/flux`**: Used by the client to push a new chunked data flux to the server.
+- **`POST /api/v1/flux/{fluxId}/ack`**: Used to explicitly send an Acknowledgement message (though ACK can also be returned as the final HTTP response to a push/pull).
+
+#### 5.2.2. HTTP Status Codes
+- **`200 OK`**: Successful completion of a stream or acknowledgement.
+- **`202 Accepted`**: Stream request accepted and is being processed asynchronously (often the initial response for a long-lived flux connection).
+- **`400 Bad Request`**: Malformed request or missing mandatory headers.
+- **`401 Unauthorized` / `403 Forbidden`**: Invalid or missing authentication credentials.
+- **`404 Not Found`**: The requested `fluxId` does not exist or has expired.
+- **`429 Too Many Requests`**: Backpressure mechanism triggered. The client has exceeded configuration limits and must throttle/back-off.
+- **`500 Internal Server Error`**: Unexpected server-side failure during flux processing.
+
+#### 5.2.3. HTTP Headers
+Standard and custom HTTP headers ensure proper routing, security, and streaming behavior.
+
+**Standard Headers:**
+- `Transfer-Encoding: chunked`: **Mandatory** for push and pull. Allows data to be streamed in chunks without defining a `Content-Length`.
+- `Content-Type`: `application/octet-stream` for raw chunked data, or `application/json` for Acknowledgement payloads.
+- `Authorization`: Used for passing secure tokens (e.g., `Bearer <token>`).
+
+**Custom Headers:**
+- `X-Flux-Id`: Unique identifier for the data stream.
+- `X-Client-Id`: Identifier for the client application (`APP_CLIENT1`, `APP_CLIENT2`).
+- `X-Chunk-Size`: Negotiated or defined chunk size for the stream.
+
+## 6. Development & Testing Guidelines
 - **Test-Driven / High Coverage**: Every class created in `src/main/java/fr/jdiot/dev/flux/` must have a corresponding test class in `src/test/java/fr/jdiot/dev/flux/` with a `Test` suffix.
 - **Dependency Management**: Ensure no outside dependencies are introduced without architect approval. Use `reactor-test` extensively for validating non-blocking streams and backpressure behaviors.
 - **Code Quality**: Ensure zero unhandled promises/subscriptions, proper resource cleanup, and paranoid security practices.
-
+- **Flux Transfer Benchmarking**: Automated benchmark tests (using tools like JMH or custom load simulators) must be included to measure data transfer speed, serialization overhead, and latency under high concurrency. Code cannot be considered production-ready without passing quality and performance thresholds in these benchmarks.
