@@ -1,3 +1,3 @@
 # FLux
 
-High performance client / server streaming data using Netty project reactor.
+High performance HTTP client / server for streaming data using Netty project reactor.
