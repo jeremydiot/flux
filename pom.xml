@@ -26,6 +26,7 @@
     <reactor-test.version>3.8.6</reactor-test.version>
     <logback.version>1.5.35</logback.version>
     <mockito.version>5.23.0</mockito.version>
+    <jackson.version>3.2.0</jackson.version>
 
     <maven-clean-plugin.version>3.4.0</maven-clean-plugin.version>
     <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
@@ -117,6 +118,14 @@
       <version>${logback.version}</version>
       <scope>compile</scope>
     </dependency>
+
+    <dependency>
+      <groupId>tools.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson.version}</version>
+      <scope>compile</scope>
+    </dependency>
+
 
   </dependencies>
 
