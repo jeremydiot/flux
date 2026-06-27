@@ -1,15 +1,12 @@
 package fr.jdiot.dev.flux.client;
 
-import java.nio.charset.StandardCharsets;
-
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import fr.jdiot.dev.flux.codec.JacksonFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
@@ -20,13 +17,14 @@ import tools.jackson.databind.ObjectMapper;
 public class FluxClientImplTest {
 
   private static DisposableServer mockServer;
-  private static FluxClient fluxClient;
+  private static FluxClient<String> fluxClient;
   private static final ObjectMapper mapper = new ObjectMapper();
 
   @BeforeAll
   public static void setUp() {
     FluxClientImplTest.mockServer = HttpServer.create().port(0)
-        .route(routes -> routes.get("/api/v1/flux/test-pull", (_, res) -> res.sendString(Flux.just("chunk1", "chunk2")))
+        .route(routes -> routes
+            .get("/api/v1/flux/test-pull", (_, res) -> res.sendString(Flux.just("\"chunk1\"", "\"chunk2\"")))
             .post("/api/v1/flux", (req, res) -> {
               final String fluxId = req.requestHeaders().get("X-Flux-Id");
               return req.receive().aggregate().asString().flatMap(_ -> {
@@ -41,8 +39,11 @@ public class FluxClientImplTest {
         .bindNow();
 
     final FluxProperties properties = new FluxProperties();
-    FluxClientImplTest.fluxClient = new FluxClientImpl("http://localhost:" + FluxClientImplTest.mockServer.port(),
-        properties, FluxClientImplTest.mapper);
+    final JacksonFluxCodec<String> dataCodec = new JacksonFluxCodec<>(FluxClientImplTest.mapper, String.class);
+    final JacksonFluxCodec<Acknowledgement> ackCodec = new JacksonFluxCodec<>(FluxClientImplTest.mapper,
+        Acknowledgement.class);
+    FluxClientImplTest.fluxClient = new FluxClientImpl<>("http://localhost:" + FluxClientImplTest.mockServer.port(),
+        properties, dataCodec, ackCodec);
   }
 
   @AfterAll
@@ -54,8 +55,7 @@ public class FluxClientImplTest {
 
   @Test
   public void testPull() {
-    final Flux<String> result = FluxClientImplTest.fluxClient.pull("test-pull")
-        .map(buf -> buf.toString(StandardCharsets.UTF_8));
+    final Flux<String> result = FluxClientImplTest.fluxClient.pull("test-pull");
 
     StepVerifier.create(result).expectNext("chunk1").expectNext("chunk2").verifyComplete();
 
@@ -63,8 +63,7 @@ public class FluxClientImplTest {
 
   @Test
   public void testPush() {
-    final ByteBuf data = Unpooled.copiedBuffer("data1", StandardCharsets.UTF_8);
-    final Flux<ByteBuf> dataStream = Flux.just(data);
+    final Flux<String> dataStream = Flux.just("data1");
 
     final Mono<Acknowledgement> result = FluxClientImplTest.fluxClient.push("test-push", dataStream);
 
