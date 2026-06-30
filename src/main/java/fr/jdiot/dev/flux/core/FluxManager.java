@@ -9,9 +9,9 @@ import reactor.core.publisher.Flux;
 public interface FluxManager {
 
   /**
-   * Registers a new incoming flux.
+   * Registers a new incoming flux and returns a Mono that emits the final acknowledgement.
    */
-  void registerFlux(String fluxId, Flux<ByteBuf> dataStream);
+  reactor.core.publisher.Mono<Acknowledgement> registerFlux(String fluxId, Flux<ByteBuf> dataStream);
 
   /**
    * Retrieves an existing flux.

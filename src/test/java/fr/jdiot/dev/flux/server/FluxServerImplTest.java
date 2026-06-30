@@ -69,10 +69,24 @@ public class FluxServerImplTest {
   }
 
   @Test
+  public void testPullFluxNotFound() {
+    Mockito.when(this.mockFluxManager.getFlux("unknown-pull")).thenReturn(null);
+
+    final HttpClient client = HttpClient.create().baseUrl("http://localhost:" + this.disposableServer.port());
+    final Mono<Integer> responseCode = client.get().uri("/api/v1/flux/unknown-pull").response()
+        .map(res -> res.status().code());
+
+    StepVerifier.create(responseCode).expectNext(404).verifyComplete();
+
+    Mockito.verify(this.mockFluxManager).getFlux("unknown-pull");
+  }
+
+  @Test
   public void testPushFlux() throws Exception {
     // Capture the flux that the server registers
     final ArgumentCaptor<Flux<ByteBuf>> fluxCaptor = ArgumentCaptor.forClass(Flux.class);
-    Mockito.doNothing().when(this.mockFluxManager).registerFlux(ArgumentMatchers.eq("test-push"), fluxCaptor.capture());
+    final reactor.core.publisher.Sinks.One<Acknowledgement> ackSink = reactor.core.publisher.Sinks.one();
+    Mockito.when(this.mockFluxManager.registerFlux(ArgumentMatchers.eq("test-push"), fluxCaptor.capture())).thenReturn(ackSink.asMono());
 
     final ByteBuf data1 = Unpooled.copiedBuffer("data1", StandardCharsets.UTF_8);
 
@@ -92,6 +106,8 @@ public class FluxServerImplTest {
     final Flux<ByteBuf> registeredFlux = fluxCaptor.getValue();
     StepVerifier.create(registeredFlux).expectNextMatches(buf -> "data1".equals(buf.toString(StandardCharsets.UTF_8)))
         .verifyComplete();
+
+    ackSink.tryEmitValue(Acknowledgement.builder().fluxId("test-push").status("SUCCESS").build());
 
     // The request should now complete, and the server should have returned SUCCESS
     final Acknowledgement ack = ackFuture.get(2, TimeUnit.SECONDS);

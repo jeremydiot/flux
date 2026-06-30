@@ -8,7 +8,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.publisher.Sinks;
+
 import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
 
@@ -51,9 +51,6 @@ public class FluxServerImpl implements FluxServer {
     }
     final Flux<ByteBuf> dataStream = this.fluxManager.getFlux(fluxId);
     if (dataStream == null) {
-      // In scenario 5.3, if the flux is not yet present, FluxManager should ideally
-      // return a deferred Flux.
-      // If it returns null, we must return 404 Not Found.
       return res.status(404).sendString(Mono.just("Flux not found"));
     }
     return res.header("Transfer-Encoding", "chunked").header("Content-Type", "application/octet-stream")
@@ -67,19 +64,10 @@ public class FluxServerImpl implements FluxServer {
       return res.status(400).sendString(Mono.just("Missing X-Flux-Id header"));
     }
 
-    final Sinks.One<ByteBuf> ackSink = Sinks.one();
+    final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux(fluxId, req.receive());
 
-    final Flux<ByteBuf> hookedStream = req.receive().doOnComplete(() -> {
-      final Acknowledgement ack = Acknowledgement.builder().fluxId(fluxId).status("SUCCESS").build();
-      ackSink.tryEmitValue(this.ackCodec.encode(ack));
-    }).doOnError(_ -> {
-      final Acknowledgement ack = Acknowledgement.builder().fluxId(fluxId).status("ERROR").build();
-      ackSink.tryEmitValue(this.ackCodec.encode(ack));
-    });
-
-    this.fluxManager.registerFlux(fluxId, hookedStream);
-
-    return res.header("Content-Type", "application/json").send(ackSink.asMono());
+    return res.header("Content-Type", "application/json")
+        .send(ackMono.map(ack -> this.ackCodec.encode(ack)));
   }
 
   private org.reactivestreams.Publisher<Void> handleAckRequest(final reactor.netty.http.server.HttpServerRequest req,
