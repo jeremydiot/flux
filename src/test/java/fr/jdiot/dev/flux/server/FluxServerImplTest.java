@@ -56,10 +56,10 @@ public class FluxServerImplTest {
     // Prepare mock data
     final ByteBuf data1 = Unpooled.copiedBuffer("chunk1", StandardCharsets.UTF_8);
     final ByteBuf data2 = Unpooled.copiedBuffer("chunk2", StandardCharsets.UTF_8);
-    Mockito.when(this.mockFluxManager.getFlux("test-pull")).thenReturn(Flux.just(data1, data2));
+    Mockito.when(this.mockFluxManager.getFlux("test-pull")).thenReturn(Flux.just(data1).concatWith(Mono.delay(Duration.ofMillis(50)).map(_ -> data2)));
 
     // Execute Request
-    final HttpClient client = HttpClient.create().baseUrl("http://localhost:" + this.disposableServer.port());
+    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C).baseUrl("http://localhost:" + this.disposableServer.port());
     final Flux<String> response = client.get().uri("/api/v1/flux/test-pull").responseContent()
         .map(buf -> buf.toString(StandardCharsets.UTF_8));
 
@@ -72,7 +72,7 @@ public class FluxServerImplTest {
   public void testPullFluxNotFound() {
     Mockito.when(this.mockFluxManager.getFlux("unknown-pull")).thenReturn(null);
 
-    final HttpClient client = HttpClient.create().baseUrl("http://localhost:" + this.disposableServer.port());
+    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C).baseUrl("http://localhost:" + this.disposableServer.port());
     final Mono<Integer> responseCode = client.get().uri("/api/v1/flux/unknown-pull").response()
         .map(res -> res.status().code());
 
@@ -90,7 +90,7 @@ public class FluxServerImplTest {
 
     final ByteBuf data1 = Unpooled.copiedBuffer("data1", StandardCharsets.UTF_8);
 
-    final HttpClient client = HttpClient.create().baseUrl("http://localhost:" + this.disposableServer.port());
+    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C).baseUrl("http://localhost:" + this.disposableServer.port());
 
     final CompletableFuture<Acknowledgement> ackFuture = new CompletableFuture<>();
 
@@ -122,7 +122,7 @@ public class FluxServerImplTest {
               .status("SUCCESS")
               .build();
 
-      HttpClient client = HttpClient.create().baseUrl("http://localhost:" + disposableServer.port());
+      HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C).baseUrl("http://localhost:" + disposableServer.port());
 
       Mono<Void> requestComplete = client
               .post()

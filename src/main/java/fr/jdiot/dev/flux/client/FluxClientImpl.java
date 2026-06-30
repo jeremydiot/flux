@@ -20,7 +20,9 @@ public class FluxClientImpl<T> implements FluxClient<T> {
       final FluxCodec<Acknowledgement> ackCodec) {
     this.dataCodec = dataCodec;
     this.ackCodec = ackCodec;
-    this.httpClient = HttpClient.create().baseUrl(baseUrl)
+    this.httpClient = HttpClient.create()
+        .protocol(reactor.netty.http.HttpProtocol.H2C)
+        .baseUrl(baseUrl)
         .responseTimeout(Duration.ofMillis(properties.getReadTimeoutMillis()));
   }
 
@@ -45,7 +47,10 @@ public class FluxClientImpl<T> implements FluxClient<T> {
         .uri("/api/v1/flux/" + fluxId + "/ack")
         .send(Mono.just(this.ackCodec.encode(ack)))
         .response()
-        .subscribe();
+        .subscribe(
+            res -> {},
+            err -> System.err.println("Failed to send ACK for fluxId " + fluxId + ": " + err.getMessage())
+        );
   }
 
   @Override

@@ -2,7 +2,6 @@ package fr.jdiot.dev.flux.core;
 
 import java.nio.charset.StandardCharsets;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -18,7 +17,7 @@ public class FluxManagerImplTest {
 
   @BeforeEach
   public void setUp() {
-    this.fluxManager = new FluxManagerImpl();
+    this.fluxManager = new FluxManagerImpl(new fr.jdiot.dev.flux.config.FluxProperties());
   }
 
   @Test

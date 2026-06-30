@@ -13,6 +13,7 @@ import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
 import reactor.test.StepVerifier;
 import tools.jackson.databind.ObjectMapper;
+import java.time.Duration;
 
 public class FluxClientImplTest {
 
@@ -22,9 +23,11 @@ public class FluxClientImplTest {
 
   @BeforeAll
   public static void setUp() {
-    FluxClientImplTest.mockServer = HttpServer.create().port(0)
+    FluxClientImplTest.mockServer = HttpServer.create()
+        .protocol(reactor.netty.http.HttpProtocol.H2C)
+        .port(0)
         .route(routes -> routes
-            .get("/api/v1/flux/test-pull", (_, res) -> res.sendString(Flux.just("\"chunk1\"", "\"chunk2\"")))
+            .get("/api/v1/flux/test-pull", (_, res) -> res.sendString(Flux.just("\"chunk1\"").concatWith(Mono.delay(Duration.ofMillis(50)).map(_ -> "\"chunk2\""))))
             .post("/api/v1/flux", (req, res) -> {
               final String fluxId = req.requestHeaders().get("X-Flux-Id");
               return req.receive().aggregate().asString().flatMap(_ -> {

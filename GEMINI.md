@@ -69,7 +69,7 @@ flux/
 * **test :** mvn test
 
 ## 5. API Usage scenarios
-In all following  exemples, there is three applications : 
+In all following  exemples, there are three applications : 
 - APP_CLIENT1 : send request to server
 - APP_CLIENT2 : send request to server
 - APP_SERVER : send response to client

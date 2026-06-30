@@ -33,7 +33,12 @@ public class FluxServerImpl implements FluxServer {
 
   @Override
   public Mono<? extends DisposableServer> start() {
-    return HttpServer.create().host(this.host).port(this.port).route(this::configureRoutes).bind()
+    return HttpServer.create()
+        .protocol(reactor.netty.http.HttpProtocol.H2C)
+        .host(this.host)
+        .port(this.port)
+        .route(this::configureRoutes)
+        .bind()
         .doOnNext(server -> this.disposableServer = server);
   }
 
@@ -64,7 +69,7 @@ public class FluxServerImpl implements FluxServer {
       return res.status(400).sendString(Mono.just("Missing X-Flux-Id header"));
     }
 
-    final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux(fluxId, req.receive());
+    final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux(fluxId, req.receive().map(ByteBuf::retain));
 
     return res.header("Content-Type", "application/json")
         .send(ackMono.map(ack -> this.ackCodec.encode(ack)));

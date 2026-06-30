@@ -25,10 +25,14 @@ public class JacksonFluxCodec<T> implements FluxCodec<T> {
   @Override
   public ByteBuf encode(final T object) {
     try {
-      // Write to a byte array and wrap it (avoids Netty bytebuf sizing overhead
-      // initially)
-      final byte[] bytes = this.objectMapper.writeValueAsBytes(object);
-      return Unpooled.wrappedBuffer(bytes);
+      final ByteBuf buf = io.netty.buffer.ByteBufAllocator.DEFAULT.buffer();
+      try (io.netty.buffer.ByteBufOutputStream out = new io.netty.buffer.ByteBufOutputStream(buf)) {
+        this.objectMapper.writeValue((java.io.OutputStream) out, object);
+      } catch (Exception inner) {
+        buf.release();
+        throw inner;
+      }
+      return buf;
     } catch (final Exception e) {
       throw new FluxException("Failed to encode object of type " + this.type.getName(), e);
     }
