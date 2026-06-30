@@ -3,7 +3,6 @@ package fr.jdiot.dev.flux.codec;
 import fr.jdiot.dev.flux.exception.FluxException;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import reactor.core.publisher.Flux;
 
 /**
  * A FluxCodec implementation for raw byte arrays. Optimized for minimal memory
@@ -33,13 +32,4 @@ public class ByteArrayFluxCodec implements FluxCodec<byte[]> {
     }
   }
 
-  @Override
-  public Flux<ByteBuf> encodeFlux(final Flux<byte[]> flux) {
-    return flux.map(this::encode);
-  }
-
-  @Override
-  public Flux<byte[]> decodeFlux(final Flux<ByteBuf> flux) {
-    return flux.map(this::decode);
-  }
 }

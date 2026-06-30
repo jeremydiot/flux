@@ -6,7 +6,6 @@ import fr.jdiot.dev.flux.exception.FluxException;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
 import io.netty.buffer.Unpooled;
-import reactor.core.publisher.Flux;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -54,15 +53,5 @@ public class JacksonFluxCodec<T> implements FluxCodec<T> {
     } catch (final Exception e) {
       throw new FluxException("Failed to decode ByteBuf to " + this.type.getName(), e);
     }
-  }
-
-  @Override
-  public Flux<ByteBuf> encodeFlux(final Flux<T> flux) {
-    return flux.map(this::encode);
-  }
-
-  @Override
-  public Flux<T> decodeFlux(final Flux<ByteBuf> flux) {
-    return flux.map(this::decode);
   }
 }

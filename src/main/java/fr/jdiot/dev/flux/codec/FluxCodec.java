@@ -21,10 +21,14 @@ public interface FluxCodec<T> {
   /**
    * Serializes a Flux of objects to a Flux of ByteBufs.
    */
-  Flux<ByteBuf> encodeFlux(Flux<T> flux);
+  default Flux<ByteBuf> encodeFlux(final Flux<T> flux) {
+    return flux.map(this::encode);
+  }
 
   /**
    * Deserializes a Flux of ByteBufs to a Flux of objects.
    */
-  Flux<T> decodeFlux(Flux<ByteBuf> flux);
+  default Flux<T> decodeFlux(final Flux<ByteBuf> flux) {
+    return flux.map(this::decode);
+  }
 }
