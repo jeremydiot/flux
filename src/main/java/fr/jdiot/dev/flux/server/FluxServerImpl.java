@@ -8,7 +8,6 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-
 import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
 
@@ -33,18 +32,13 @@ public class FluxServerImpl implements FluxServer {
 
   @Override
   public Mono<? extends DisposableServer> start() {
-    return HttpServer.create()
-        .protocol(reactor.netty.http.HttpProtocol.H2C)
-        .host(this.host)
-        .port(this.port)
-        .route(this::configureRoutes)
-        .bind()
-        .doOnNext(server -> this.disposableServer = server);
+    return HttpServer.create().protocol(reactor.netty.http.HttpProtocol.H2C).host(this.host).port(this.port)
+        .route(this::configureRoutes).bind().doOnNext(server -> this.disposableServer = server);
   }
 
   private void configureRoutes(final reactor.netty.http.server.HttpServerRoutes routes) {
     routes.get("/api/v1/flux/{fluxId}", this::handlePullRequest);
-    routes.post("/api/v1/flux", this::handlePushRequest);
+    routes.post("/api/v1/flux/{fluxId}", this::handlePushRequest);
     routes.post("/api/v1/flux/{fluxId}/ack", this::handleAckRequest);
   }
 
@@ -64,15 +58,14 @@ public class FluxServerImpl implements FluxServer {
 
   private org.reactivestreams.Publisher<Void> handlePushRequest(final reactor.netty.http.server.HttpServerRequest req,
       final reactor.netty.http.server.HttpServerResponse res) {
-    final String fluxId = req.requestHeaders().get("X-Flux-Id");
+    final String fluxId = req.param("fluxId");
     if (fluxId == null || fluxId.isEmpty()) {
-      return res.status(400).sendString(Mono.just("Missing X-Flux-Id header"));
+      return res.status(400).sendString(Mono.just("Missing fluxId"));
     }
 
     final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux(fluxId, req.receive().map(ByteBuf::retain));
 
-    return res.header("Content-Type", "application/json")
-        .send(ackMono.map(ack -> this.ackCodec.encode(ack)));
+    return res.header("Content-Type", "application/json").send(ackMono.map(ack -> this.ackCodec.encode(ack)));
   }
 
   private org.reactivestreams.Publisher<Void> handleAckRequest(final reactor.netty.http.server.HttpServerRequest req,

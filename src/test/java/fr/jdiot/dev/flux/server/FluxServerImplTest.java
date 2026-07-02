@@ -17,6 +17,7 @@ import fr.jdiot.dev.flux.codec.FluxCodec;
 import fr.jdiot.dev.flux.codec.JacksonFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
+import fr.jdiot.dev.flux.core.Acknowledgement.Status;
 import fr.jdiot.dev.flux.core.FluxManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -56,10 +57,12 @@ public class FluxServerImplTest {
     // Prepare mock data
     final ByteBuf data1 = Unpooled.copiedBuffer("chunk1", StandardCharsets.UTF_8);
     final ByteBuf data2 = Unpooled.copiedBuffer("chunk2", StandardCharsets.UTF_8);
-    Mockito.when(this.mockFluxManager.getFlux("test-pull")).thenReturn(Flux.just(data1).concatWith(Mono.delay(Duration.ofMillis(50)).map(_ -> data2)));
+    Mockito.when(this.mockFluxManager.getFlux("test-pull"))
+        .thenReturn(Flux.just(data1).concatWith(Mono.delay(Duration.ofMillis(50)).map(_ -> data2)));
 
     // Execute Request
-    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C).baseUrl("http://localhost:" + this.disposableServer.port());
+    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C)
+        .baseUrl("http://localhost:" + this.disposableServer.port());
     final Flux<String> response = client.get().uri("/api/v1/flux/test-pull").responseContent()
         .map(buf -> buf.toString(StandardCharsets.UTF_8));
 
@@ -72,7 +75,8 @@ public class FluxServerImplTest {
   public void testPullFluxNotFound() {
     Mockito.when(this.mockFluxManager.getFlux("unknown-pull")).thenReturn(null);
 
-    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C).baseUrl("http://localhost:" + this.disposableServer.port());
+    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C)
+        .baseUrl("http://localhost:" + this.disposableServer.port());
     final Mono<Integer> responseCode = client.get().uri("/api/v1/flux/unknown-pull").response()
         .map(res -> res.status().code());
 
@@ -86,17 +90,19 @@ public class FluxServerImplTest {
     // Capture the flux that the server registers
     final ArgumentCaptor<Flux<ByteBuf>> fluxCaptor = ArgumentCaptor.forClass(Flux.class);
     final reactor.core.publisher.Sinks.One<Acknowledgement> ackSink = reactor.core.publisher.Sinks.one();
-    Mockito.when(this.mockFluxManager.registerFlux(ArgumentMatchers.eq("test-push"), fluxCaptor.capture())).thenReturn(ackSink.asMono());
+    Mockito.when(this.mockFluxManager.registerFlux(ArgumentMatchers.eq("test-push"), fluxCaptor.capture()))
+        .thenReturn(ackSink.asMono());
 
     final ByteBuf data1 = Unpooled.copiedBuffer("data1", StandardCharsets.UTF_8);
 
-    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C).baseUrl("http://localhost:" + this.disposableServer.port());
+    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C)
+        .baseUrl("http://localhost:" + this.disposableServer.port());
 
     final CompletableFuture<Acknowledgement> ackFuture = new CompletableFuture<>();
 
-    client.headers(h -> h.add("X-Flux-Id", "test-push")).post().uri("/api/v1/flux").send(Flux.just(data1))
-        .responseSingle((_, byteBufMono) -> byteBufMono).doOnNext(buf -> ackFuture.complete(this.ackCodec.decode(buf)))
-        .doOnError(ackFuture::completeExceptionally).subscribe();
+    client.post().uri("/api/v1/flux/test-push").send(Flux.just(data1)).responseSingle((_, byteBufMono) -> byteBufMono)
+        .doOnNext(buf -> ackFuture.complete(this.ackCodec.decode(buf))).doOnError(ackFuture::completeExceptionally)
+        .subscribe();
 
     // Wait a bit to ensure registration happened
     Mockito.verify(this.mockFluxManager, Mockito.timeout(1000)).registerFlux(ArgumentMatchers.eq("test-push"),
@@ -107,38 +113,31 @@ public class FluxServerImplTest {
     StepVerifier.create(registeredFlux).expectNextMatches(buf -> "data1".equals(buf.toString(StandardCharsets.UTF_8)))
         .verifyComplete();
 
-    ackSink.tryEmitValue(Acknowledgement.builder().fluxId("test-push").status("SUCCESS").build());
+    ackSink.tryEmitValue(Acknowledgement.success("test-push"));
 
     // The request should now complete, and the server should have returned SUCCESS
     final Acknowledgement ack = ackFuture.get(2, TimeUnit.SECONDS);
     Assertions.assertEquals("test-push", ack.getFluxId());
-    Assertions.assertEquals("SUCCESS", ack.getStatus());
+    Assertions.assertEquals(Status.SUCCESS, ack.getStatus());
   }
 
   @Test
   public void testPullAck() {
-      Acknowledgement ack = Acknowledgement.builder()
-              .fluxId("test-pull-ack")
-              .status("SUCCESS")
-              .build();
+    final Acknowledgement ack = Acknowledgement.success("test-pull-ack");
 
-      HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C).baseUrl("http://localhost:" + disposableServer.port());
+    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C)
+        .baseUrl("http://localhost:" + this.disposableServer.port());
 
-      Mono<Void> requestComplete = client
-              .post()
-              .uri("/api/v1/flux/test-pull-ack/ack")
-              .send(Flux.just(ackCodec.encode(ack)))
-              .response()
-              .then();
+    final Mono<Void> requestComplete = client.post().uri("/api/v1/flux/test-pull-ack/ack")
+        .send(Flux.just(this.ackCodec.encode(ack))).response().then();
 
-      StepVerifier.create(requestComplete)
-              .verifyComplete();
+    StepVerifier.create(requestComplete).verifyComplete();
 
-      ArgumentCaptor<Acknowledgement> ackCaptor = ArgumentCaptor.forClass(Acknowledgement.class);
-      Mockito.verify(mockFluxManager).acknowledge(ArgumentMatchers.eq("test-pull-ack"), ackCaptor.capture());
-      
-      Acknowledgement receivedAck = ackCaptor.getValue();
-      Assertions.assertEquals("test-pull-ack", receivedAck.getFluxId());
-      Assertions.assertEquals("SUCCESS", receivedAck.getStatus());
+    final ArgumentCaptor<Acknowledgement> ackCaptor = ArgumentCaptor.forClass(Acknowledgement.class);
+    Mockito.verify(this.mockFluxManager).acknowledge(ArgumentMatchers.eq("test-pull-ack"), ackCaptor.capture());
+
+    final Acknowledgement receivedAck = ackCaptor.getValue();
+    Assertions.assertEquals("test-pull-ack", receivedAck.getFluxId());
+    Assertions.assertEquals(Status.SUCCESS, receivedAck.getStatus());
   }
 }

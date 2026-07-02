@@ -4,8 +4,9 @@ import java.io.InputStream;
 
 import fr.jdiot.dev.flux.exception.FluxException;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufInputStream;
-import io.netty.buffer.Unpooled;
+import io.netty.buffer.ByteBufOutputStream;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -22,13 +23,18 @@ public class JacksonFluxCodec<T> implements FluxCodec<T> {
     this.type = type;
   }
 
+  public JacksonFluxCodec(final Class<T> type) {
+    this.objectMapper = new ObjectMapper();
+    this.type = type;
+  }
+
   @Override
   public ByteBuf encode(final T object) {
     try {
-      final ByteBuf buf = io.netty.buffer.ByteBufAllocator.DEFAULT.buffer();
-      try (io.netty.buffer.ByteBufOutputStream out = new io.netty.buffer.ByteBufOutputStream(buf)) {
+      final ByteBuf buf = ByteBufAllocator.DEFAULT.buffer();
+      try (ByteBufOutputStream out = new ByteBufOutputStream(buf)) {
         this.objectMapper.writeValue((java.io.OutputStream) out, object);
-      } catch (Exception inner) {
+      } catch (final Exception inner) {
         buf.release();
         throw inner;
       }

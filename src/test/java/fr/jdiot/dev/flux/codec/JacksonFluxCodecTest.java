@@ -24,12 +24,12 @@ public class JacksonFluxCodecTest {
 
   @Test
   public void testEncodeDecodeSingle() {
-    final Acknowledgement ack = Acknowledgement.builder().fluxId("test-id").status("SUCCESS").build();
+    final Acknowledgement ack = Acknowledgement.success("test-id");
     final ByteBuf buf = this.codec.encode(ack);
 
     final Acknowledgement decoded = this.codec.decode(buf);
     Assertions.assertEquals("test-id", decoded.getFluxId());
-    Assertions.assertEquals("SUCCESS", decoded.getStatus());
+    Assertions.assertEquals(Acknowledgement.Status.SUCCESS, decoded.getStatus());
 
     // No release needed for Unpooled.wrappedBuffer(byte[]) normally since it's
     // heap,
@@ -38,7 +38,7 @@ public class JacksonFluxCodecTest {
 
   @Test
   public void testDecodeWithDirectBuffer() throws Exception {
-    final Acknowledgement ack = Acknowledgement.builder().fluxId("direct-id").status("ERROR").build();
+    final Acknowledgement ack = Acknowledgement.failed("direct-id");
     final byte[] bytes = this.mapper.writeValueAsBytes(ack);
 
     // Allocate direct buffer to test the InputStream fallback logic
@@ -47,22 +47,24 @@ public class JacksonFluxCodecTest {
 
     final Acknowledgement decoded = this.codec.decode(directBuf);
     Assertions.assertEquals("direct-id", decoded.getFluxId());
-    Assertions.assertEquals("ERROR", decoded.getStatus());
+    Assertions.assertEquals(Acknowledgement.Status.FAILED, decoded.getStatus());
 
     directBuf.release();
   }
 
   @Test
   public void testEncodeDecodeFlux() {
-    final Acknowledgement ack1 = Acknowledgement.builder().fluxId("id-1").status("OK").build();
-    final Acknowledgement ack2 = Acknowledgement.builder().fluxId("id-2").status("OK").build();
+    final Acknowledgement ack1 = Acknowledgement.success("id-1");
+    final Acknowledgement ack2 = Acknowledgement.success("id-2");
 
     final Flux<Acknowledgement> inputFlux = Flux.just(ack1, ack2);
 
     final Flux<ByteBuf> encodedFlux = this.codec.encodeFlux(inputFlux);
     final Flux<Acknowledgement> decodedFlux = this.codec.decodeFlux(encodedFlux);
 
-    StepVerifier.create(decodedFlux).expectNextMatches(a -> "id-1".equals(a.getFluxId()) && "OK".equals(a.getStatus()))
-        .expectNextMatches(a -> "id-2".equals(a.getFluxId()) && "OK".equals(a.getStatus())).verifyComplete();
+    StepVerifier.create(decodedFlux)
+        .expectNextMatches(a -> "id-1".equals(a.getFluxId()) && Acknowledgement.Status.SUCCESS.equals(a.getStatus()))
+        .expectNextMatches(a -> "id-2".equals(a.getFluxId()) && Acknowledgement.Status.SUCCESS.equals(a.getStatus()))
+        .verifyComplete();
   }
 }

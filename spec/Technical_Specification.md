@@ -131,7 +131,7 @@ The FLUX API leverages standard HTTP/1.1 (or HTTP/2) semantics for real-time str
 
 #### 5.2.1. HTTP Methods
 - **`GET /api/v1/flux/{fluxId}`**: Used by the client to pull/subscribe to a data flux from the server.
-- **`POST /api/v1/flux`**: Used by the client to push a new chunked data flux to the server.
+- **`POST /api/v1/flux/{fluxId}`**: Used by the client to push a new chunked data flux to the server.
 - **`POST /api/v1/flux/{fluxId}/ack`**: Used to explicitly send an Acknowledgement message (though ACK can also be returned as the final HTTP response to a pull).
 
 #### 5.2.2. HTTP Status Codes
@@ -152,7 +152,6 @@ Standard and custom HTTP headers ensure proper routing, security, and streaming 
 - `Authorization`: Used for passing secure tokens (e.g., `Bearer <token>`).
 
 **Custom Headers:**
-- `X-Flux-Id`: Unique identifier for the data stream.
 - `X-Client-Id`: Identifier for the client application (`APP_CLIENT1`, `APP_CLIENT2`).
 - `X-Chunk-Size`: Negotiated or defined chunk size for the stream.
 

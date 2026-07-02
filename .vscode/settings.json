@@ -1,7 +1,7 @@
 {
   "editor.detectIndentation": false,
   "editor.tabSize": 2,
-  "java.compile.nullAnalysis.mode": "automatic",
+  "java.compile.nullAnalysis.mode": "disabled",
   "java.format.settings.url": ".vscode/java-formatter.xml",
   "java.configuration.updateBuildConfiguration": "automatic",
   "editor.formatOnSave": true,
@@ -32,4 +32,9 @@
     "redundantFallingThroughBlockEnd",
   ],
   "java.codeGeneration.addFinalForNewDeclaration": "all",
+  "java.test.config": {
+    "vmArgs": [
+      "--enable-native-access=ALL-UNNAMED"
+    ]
+  }
 }

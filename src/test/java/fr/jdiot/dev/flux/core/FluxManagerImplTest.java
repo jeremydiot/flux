@@ -30,17 +30,12 @@ public class FluxManagerImplTest {
 
     final Flux<ByteBuf> pulledStream = this.fluxManager.getFlux("bridge-1");
 
-    StepVerifier.create(pulledStream)
-        .expectNext(chunk1)
-        .expectNext(chunk2)
-        .verifyComplete();
+    StepVerifier.create(pulledStream).expectNext(chunk1).expectNext(chunk2).verifyComplete();
 
-    final Acknowledgement ack = Acknowledgement.builder().fluxId("bridge-1").status("SUCCESS").build();
+    final Acknowledgement ack = Acknowledgement.success("bridge-1");
     this.fluxManager.acknowledge("bridge-1", ack);
 
-    StepVerifier.create(ackMono)
-        .expectNext(ack)
-        .verifyComplete();
+    StepVerifier.create(ackMono).expectNext(ack).verifyComplete();
   }
 
   @Test
@@ -50,11 +45,8 @@ public class FluxManagerImplTest {
     final ByteBuf chunk1 = Unpooled.copiedBuffer("chunk1", StandardCharsets.UTF_8);
     final Flux<ByteBuf> dataStream = Flux.just(chunk1);
 
-    StepVerifier.create(pulledStream)
-        .then(() -> {
-            this.fluxManager.registerFlux("bridge-2", dataStream).subscribe();
-        })
-        .expectNext(chunk1)
-        .verifyComplete();
+    StepVerifier.create(pulledStream).then(() -> {
+      this.fluxManager.registerFlux("bridge-2", dataStream).subscribe();
+    }).expectNext(chunk1).verifyComplete();
   }
 }

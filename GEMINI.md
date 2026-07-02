@@ -83,7 +83,7 @@ In all following  exemples, there are three applications :
 1. APP_CLIENT1 send chunked data flux to APP_SERVER.
 2. APP_SERVER return an acknowledge response for the reception of all chunked data to APP_CLIENT1.
 
-### 5.3. Pause / Resume / Push data from a flux to another flux
+### 5.3. Bridge
 1. APP_CLIENT1 asking APP_SERVER to get data flux.
 2. APP_SERVER keep open and save the connection with APP_CLIENT1, not respond immediately.
 3. APP_CLIENT2 send chunked data flux to APP_SERVER.
