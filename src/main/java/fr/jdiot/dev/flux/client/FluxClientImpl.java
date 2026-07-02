@@ -9,6 +9,7 @@ import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.exception.FluxException;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.client.HttpClient;
 
 public class FluxClientImpl<T> implements FluxClient<T> {
@@ -19,7 +20,7 @@ public class FluxClientImpl<T> implements FluxClient<T> {
 
   public FluxClientImpl(final String baseUrl, final FluxProperties properties, final FluxCodec<T> dataCodec) {
     this.dataCodec = dataCodec;
-    this.httpClient = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C).baseUrl(baseUrl)
+    this.httpClient = HttpClient.create().protocol(HttpProtocol.H2C).baseUrl(baseUrl)
         .responseTimeout(Duration.ofMillis(properties.getReadTimeoutMillis()));
   }
 
@@ -40,6 +41,7 @@ public class FluxClientImpl<T> implements FluxClient<T> {
     this.httpClient.headers(h -> h.add("Content-Type", "application/json")).post()
         .uri("/api/v1/flux/" + ack.getFluxId() + "/ack").send(Mono.just(this.ackCodec.encode(ack))).response()
         .subscribe(_ -> {
+          // NOOP
         }, err -> System.err.println("Failed to send ACK for fluxId " + ack.getFluxId() + ": " + err.getMessage()));
   }
 

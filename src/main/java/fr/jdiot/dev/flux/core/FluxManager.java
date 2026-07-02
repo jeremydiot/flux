@@ -1,5 +1,7 @@
 package fr.jdiot.dev.flux.core;
 
+import java.util.Set;
+
 import io.netty.buffer.ByteBuf;
 import reactor.core.publisher.Flux;
 
@@ -9,7 +11,8 @@ import reactor.core.publisher.Flux;
 public interface FluxManager {
 
   /**
-   * Registers a new incoming flux and returns a Mono that emits the final acknowledgement.
+   * Registers a new incoming flux and returns a Mono that emits the final
+   * acknowledgement.
    */
   reactor.core.publisher.Mono<Acknowledgement> registerFlux(String fluxId, Flux<ByteBuf> dataStream);
 
@@ -19,17 +22,12 @@ public interface FluxManager {
   Flux<ByteBuf> getFlux(String fluxId);
 
   /**
-   * Pauses the flux processing.
-   */
-  void pauseFlux(String fluxId);
-
-  /**
-   * Resumes the flux processing.
-   */
-  void resumeFlux(String fluxId);
-
-  /**
    * Acknowledges the successful transfer of a flux.
    */
   void acknowledge(String fluxId, Acknowledgement ack);
+
+  /**
+   * Returns the set of active flux IDs.
+   */
+  Set<String> getActiveFluxIds();
 }

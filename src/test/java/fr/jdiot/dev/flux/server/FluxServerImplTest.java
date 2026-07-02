@@ -23,7 +23,9 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
 import reactor.netty.DisposableServer;
+import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.client.HttpClient;
 import reactor.test.StepVerifier;
 import tools.jackson.databind.ObjectMapper;
@@ -61,7 +63,7 @@ public class FluxServerImplTest {
         .thenReturn(Flux.just(data1).concatWith(Mono.delay(Duration.ofMillis(50)).map(_ -> data2)));
 
     // Execute Request
-    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C)
+    final HttpClient client = HttpClient.create().protocol(HttpProtocol.H2C)
         .baseUrl("http://localhost:" + this.disposableServer.port());
     final Flux<String> response = client.get().uri("/api/v1/flux/test-pull").responseContent()
         .map(buf -> buf.toString(StandardCharsets.UTF_8));
@@ -75,7 +77,7 @@ public class FluxServerImplTest {
   public void testPullFluxNotFound() {
     Mockito.when(this.mockFluxManager.getFlux("unknown-pull")).thenReturn(null);
 
-    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C)
+    final HttpClient client = HttpClient.create().protocol(HttpProtocol.H2C)
         .baseUrl("http://localhost:" + this.disposableServer.port());
     final Mono<Integer> responseCode = client.get().uri("/api/v1/flux/unknown-pull").response()
         .map(res -> res.status().code());
@@ -89,13 +91,13 @@ public class FluxServerImplTest {
   public void testPushFlux() throws Exception {
     // Capture the flux that the server registers
     final ArgumentCaptor<Flux<ByteBuf>> fluxCaptor = ArgumentCaptor.forClass(Flux.class);
-    final reactor.core.publisher.Sinks.One<Acknowledgement> ackSink = reactor.core.publisher.Sinks.one();
+    final Sinks.One<Acknowledgement> ackSink = Sinks.one();
     Mockito.when(this.mockFluxManager.registerFlux(ArgumentMatchers.eq("test-push"), fluxCaptor.capture()))
         .thenReturn(ackSink.asMono());
 
     final ByteBuf data1 = Unpooled.copiedBuffer("data1", StandardCharsets.UTF_8);
 
-    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C)
+    final HttpClient client = HttpClient.create().protocol(HttpProtocol.H2C)
         .baseUrl("http://localhost:" + this.disposableServer.port());
 
     final CompletableFuture<Acknowledgement> ackFuture = new CompletableFuture<>();
@@ -125,7 +127,7 @@ public class FluxServerImplTest {
   public void testPullAck() {
     final Acknowledgement ack = Acknowledgement.success("test-pull-ack");
 
-    final HttpClient client = HttpClient.create().protocol(reactor.netty.http.HttpProtocol.H2C)
+    final HttpClient client = HttpClient.create().protocol(HttpProtocol.H2C)
         .baseUrl("http://localhost:" + this.disposableServer.port());
 
     final Mono<Void> requestComplete = client.post().uri("/api/v1/flux/test-pull-ack/ack")

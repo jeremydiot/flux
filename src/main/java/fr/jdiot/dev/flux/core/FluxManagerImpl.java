@@ -1,6 +1,7 @@
 package fr.jdiot.dev.flux.core;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import fr.jdiot.dev.flux.config.FluxProperties;
@@ -32,39 +33,42 @@ public class FluxManagerImpl implements FluxManager {
     this.properties = properties;
   }
 
+  /**
+   * client push request or client push bridge request
+   */
   @Override
   public Mono<Acknowledgement> registerFlux(final String fluxId, final Flux<ByteBuf> dataStream) {
     final FluxState state = this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState());
 
     dataStream.subscribe(buf -> {
       final Sinks.EmitResult result = state.dataSink.tryEmitNext(buf);
+
       if (result.isFailure()) {
         ReferenceCountUtil.safeRelease(buf);
         state.dataSink.tryEmitError(new IllegalStateException("Backpressure overflow"));
       }
+
     }, err -> {
-      final Throwable actualErr = err != null ? err : new IllegalStateException("Unknown flux error");
-      state.dataSink.tryEmitError(actualErr);
-
+      state.dataSink.tryEmitError(err != null ? err : new IllegalStateException("Unknown flux error"));
       if (fluxId != null && fluxId.startsWith("push-")) {
-        final Acknowledgement errorAck = Acknowledgement.failed(fluxId);
-        state.ackSink.tryEmitValue(errorAck);
+        state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId));
+        this.activeFluxes.remove(fluxId);
       }
-
-      this.activeFluxes.remove(fluxId); // TODO
     }, () -> {
       state.dataSink.tryEmitComplete();
-      // In a push scenario, we automatically emit SUCCESS when the upload completes.
-      // In pull and bridge scenarios, we must wait for the client's explicit ACK.
       if (fluxId != null && fluxId.startsWith("push-")) {
-        final Acknowledgement successAck = Acknowledgement.success(fluxId);
-        state.ackSink.tryEmitValue(successAck);
+        state.ackSink.tryEmitValue(Acknowledgement.success(fluxId));
+        this.activeFluxes.remove(fluxId);
       }
     });
 
+    // response to client push or client pull bridge
     return state.ackSink.asMono();
   }
 
+  /**
+   * client pull request or client pull bridge request
+   */
   @Override
   public Flux<ByteBuf> getFlux(final String fluxId) {
 
@@ -77,21 +81,19 @@ public class FluxManagerImpl implements FluxManager {
     return state != null ? state.dataSink.asFlux().doOnDiscard(ByteBuf.class, ReferenceCountUtil::safeRelease) : null;
   }
 
-  @Override
-  public void pauseFlux(final String fluxId) {
-    // No-op for now
-  }
-
-  @Override
-  public void resumeFlux(final String fluxId) {
-    // No-op for now
-  }
-
+  /**
+   * client ack response after pull request
+   */
   @Override
   public void acknowledge(final String fluxId, final Acknowledgement ack) {
     final FluxState state = this.activeFluxes.remove(fluxId);
     if (state != null) {
       state.ackSink.tryEmitValue(ack);
     }
+  }
+
+  @Override
+  public Set<String> getActiveFluxIds() {
+    return this.activeFluxes.keySet();
   }
 }

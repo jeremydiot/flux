@@ -10,7 +10,11 @@ import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
+import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.server.HttpServer;
+import reactor.netty.http.server.HttpServerRequest;
+import reactor.netty.http.server.HttpServerResponse;
+import reactor.netty.http.server.HttpServerRoutes;
 
 public class FluxServerImpl implements FluxServer {
 
@@ -32,33 +36,39 @@ public class FluxServerImpl implements FluxServer {
 
   @Override
   public Mono<? extends DisposableServer> start() {
-    return HttpServer.create().protocol(reactor.netty.http.HttpProtocol.H2C).host(this.host).port(this.port)
-        .route(this::configureRoutes).bind().doOnNext(server -> this.disposableServer = server);
+    return HttpServer.create().protocol(HttpProtocol.H2C).host(this.host).port(this.port).route(this::configureRoutes)
+        .bind().doOnNext(server -> this.disposableServer = server);
   }
 
-  private void configureRoutes(final reactor.netty.http.server.HttpServerRoutes routes) {
+  private void configureRoutes(final HttpServerRoutes routes) {
     routes.get("/api/v1/flux/{fluxId}", this::handlePullRequest);
     routes.post("/api/v1/flux/{fluxId}", this::handlePushRequest);
     routes.post("/api/v1/flux/{fluxId}/ack", this::handleAckRequest);
   }
 
-  private org.reactivestreams.Publisher<Void> handlePullRequest(final reactor.netty.http.server.HttpServerRequest req,
-      final reactor.netty.http.server.HttpServerResponse res) {
+  private org.reactivestreams.Publisher<Void> handlePullRequest(final HttpServerRequest req,
+      final HttpServerResponse res) {
     final String fluxId = req.param("fluxId");
+
     if (fluxId == null || fluxId.isEmpty()) {
       return res.status(400).sendString(Mono.just("Missing fluxId"));
     }
+
     final Flux<ByteBuf> dataStream = this.fluxManager.getFlux(fluxId);
+
     if (dataStream == null) {
       return res.status(404).sendString(Mono.just("Flux not found"));
     }
+
     return res.header("Transfer-Encoding", "chunked").header("Content-Type", "application/octet-stream")
         .send(dataStream);
   }
 
-  private org.reactivestreams.Publisher<Void> handlePushRequest(final reactor.netty.http.server.HttpServerRequest req,
-      final reactor.netty.http.server.HttpServerResponse res) {
+  private org.reactivestreams.Publisher<Void> handlePushRequest(final HttpServerRequest req,
+      final HttpServerResponse res) {
+
     final String fluxId = req.param("fluxId");
+
     if (fluxId == null || fluxId.isEmpty()) {
       return res.status(400).sendString(Mono.just("Missing fluxId"));
     }
@@ -68,7 +78,7 @@ public class FluxServerImpl implements FluxServer {
     return res.header("Content-Type", "application/json").send(ackMono.map(ack -> this.ackCodec.encode(ack)));
   }
 
-  private org.reactivestreams.Publisher<Void> handleAckRequest(final reactor.netty.http.server.HttpServerRequest req,
+  private org.reactivestreams.Publisher<Void> handleAckRequest(final HttpServerRequest req,
       final reactor.netty.http.server.HttpServerResponse res) {
     final String fluxId = req.param("fluxId");
     if (fluxId == null || fluxId.isEmpty()) {
