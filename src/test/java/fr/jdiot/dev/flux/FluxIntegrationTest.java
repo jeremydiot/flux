@@ -39,7 +39,6 @@ public class FluxIntegrationTest {
   static void setUp() {
     FluxIntegrationTest.properties = new FluxProperties();
     FluxIntegrationTest.properties.setBackPressureSize(256);
-    FluxIntegrationTest.properties.setReadTimeoutMillis(5000);
 
     FluxIntegrationTest.dataCodec = new ByteArrayFluxCodec();
     FluxIntegrationTest.fluxManager = org.mockito.Mockito.spy(new FluxManagerImpl(FluxIntegrationTest.properties));

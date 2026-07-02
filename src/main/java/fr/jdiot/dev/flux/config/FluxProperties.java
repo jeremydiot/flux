@@ -7,10 +7,12 @@ import lombok.Data;
  */
 @Data
 public class FluxProperties {
+  private long fluxTimeoutMillis = 60000;
+  private long fluxCleanupIntervalMillis = 10000;
+
   private int chunkSize = 8192;
   private int maxRetries = 3;
   private long connectionTimeoutMillis = 5000;
-  private long readTimeoutMillis = 30000;
   private long writeTimeoutMillis = 30000;
   private int maxConnectionsPerHost = 500;
   private int poolSize = 32;

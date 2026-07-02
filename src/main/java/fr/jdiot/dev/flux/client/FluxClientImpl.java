@@ -21,7 +21,7 @@ public class FluxClientImpl<T> implements FluxClient<T> {
   public FluxClientImpl(final String baseUrl, final FluxProperties properties, final FluxCodec<T> dataCodec) {
     this.dataCodec = dataCodec;
     this.httpClient = HttpClient.create().protocol(HttpProtocol.H2C).baseUrl(baseUrl)
-        .responseTimeout(Duration.ofMillis(properties.getReadTimeoutMillis()));
+        .responseTimeout(Duration.ofMillis(properties.getFluxTimeoutMillis()));
   }
 
   @Override

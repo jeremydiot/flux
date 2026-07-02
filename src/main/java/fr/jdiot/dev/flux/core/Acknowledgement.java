@@ -35,6 +35,10 @@ public class Acknowledgement {
     return new Acknowledgement(fluxId, Status.FAILED, 0, 0, null, null);
   }
 
+  public static Acknowledgement failed(final String fluxId, final String reason) {
+    return new Acknowledgement(fluxId, Status.FAILED, 0, 0, null, reason);
+  }
+
   public static Acknowledgement partial(final String fluxId) {
     return new Acknowledgement(fluxId, Status.PARTIAL, 0, 0, null, null);
   }
