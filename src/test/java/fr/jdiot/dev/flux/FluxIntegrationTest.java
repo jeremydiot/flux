@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.client.FluxClientImpl;
 import fr.jdiot.dev.flux.codec.ByteArrayFluxCodec;
-import fr.jdiot.dev.flux.codec.JacksonFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
@@ -24,7 +23,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
 import reactor.test.StepVerifier;
-import tools.jackson.databind.ObjectMapper;
 
 public class FluxIntegrationTest {
 
@@ -34,7 +32,7 @@ public class FluxIntegrationTest {
   private static DisposableServer disposableServer;
 
   private static FluxProperties properties;
-  private static JacksonFluxCodec<Acknowledgement> ackCodec;
+
   private static ByteArrayFluxCodec dataCodec;
 
   @BeforeAll
@@ -43,12 +41,11 @@ public class FluxIntegrationTest {
     FluxIntegrationTest.properties.setBackPressureSize(256);
     FluxIntegrationTest.properties.setReadTimeoutMillis(5000);
 
-    FluxIntegrationTest.ackCodec = new JacksonFluxCodec<>(new ObjectMapper(), Acknowledgement.class);
     FluxIntegrationTest.dataCodec = new ByteArrayFluxCodec();
     FluxIntegrationTest.fluxManager = org.mockito.Mockito.spy(new FluxManagerImpl(FluxIntegrationTest.properties));
 
     FluxIntegrationTest.server = new FluxServerImpl("127.0.0.1", 0, FluxIntegrationTest.properties,
-        FluxIntegrationTest.fluxManager, FluxIntegrationTest.ackCodec);
+        FluxIntegrationTest.fluxManager);
     FluxIntegrationTest.disposableServer = (DisposableServer) FluxIntegrationTest.server.start().block();
     FluxIntegrationTest.port = FluxIntegrationTest.disposableServer.port();
   }

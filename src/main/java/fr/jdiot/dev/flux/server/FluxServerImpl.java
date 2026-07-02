@@ -1,6 +1,7 @@
 package fr.jdiot.dev.flux.server;
 
 import fr.jdiot.dev.flux.codec.FluxCodec;
+import fr.jdiot.dev.flux.codec.JacksonFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.FluxManager;
@@ -15,19 +16,18 @@ public class FluxServerImpl implements FluxServer {
 
   private final FluxProperties properties;
   private final FluxManager fluxManager;
-  private final FluxCodec<Acknowledgement> ackCodec;
+  private final FluxCodec<Acknowledgement> ackCodec = new JacksonFluxCodec<>(Acknowledgement.class);
   private final String host;
   private final int port;
 
   private DisposableServer disposableServer;
 
   public FluxServerImpl(final String host, final int port, final FluxProperties properties,
-      final FluxManager fluxManager, final FluxCodec<Acknowledgement> ackCodec) {
+      final FluxManager fluxManager) {
     this.host = host;
     this.port = port;
     this.properties = properties;
     this.fluxManager = fluxManager;
-    this.ackCodec = ackCodec;
   }
 
   @Override

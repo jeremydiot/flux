@@ -41,7 +41,7 @@ public class FluxServerImplTest {
     this.ackCodec = new JacksonFluxCodec<>(new ObjectMapper(), Acknowledgement.class);
     final FluxProperties properties = new FluxProperties();
 
-    this.server = new FluxServerImpl("localhost", 0, properties, this.mockFluxManager, this.ackCodec);
+    this.server = new FluxServerImpl("localhost", 0, properties, this.mockFluxManager);
     this.disposableServer = this.server.start().block(Duration.ofSeconds(5));
   }
 
