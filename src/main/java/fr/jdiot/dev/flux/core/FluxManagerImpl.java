@@ -10,6 +10,7 @@ import fr.jdiot.dev.flux.config.FluxProperties;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
 import reactor.core.Disposable;
+import reactor.core.publisher.BaseSubscriber;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
@@ -74,25 +75,41 @@ public class FluxManagerImpl implements FluxManager {
   public Mono<Acknowledgement> registerFlux(final String fluxId, final Flux<ByteBuf> dataStream) {
     final FluxState state = this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState());
 
-    dataStream.subscribe(buf -> {
-      final Sinks.EmitResult result = state.dataSink.tryEmitNext(buf);
+    dataStream.subscribe(new BaseSubscriber<ByteBuf>() {
+      @Override
+      protected void hookOnNext(ByteBuf buf) {
+        final Sinks.EmitResult result = state.dataSink.tryEmitNext(buf);
 
-      if (result.isFailure()) {
-        ReferenceCountUtil.safeRelease(buf);
-        state.dataSink.tryEmitError(new IllegalStateException("Backpressure overflow"));
+        if (result.isFailure()) {
+          ReferenceCountUtil.safeRelease(buf);
+          state.dataSink.tryEmitError(new IllegalStateException("Backpressure overflow"));
+        }
       }
 
-    }, err -> {
-      state.dataSink.tryEmitError(err != null ? err : new IllegalStateException("Unknown flux error"));
-      if (fluxId != null && fluxId.startsWith("push-")) {
-        state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId));
-        this.activeFluxes.remove(fluxId);
+      @Override
+      protected void hookOnError(Throwable err) {
+        state.dataSink.tryEmitError(err != null ? err : new IllegalStateException("Unknown flux error"));
+        if (fluxId != null && fluxId.startsWith("push-")) {
+          state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId));
+          FluxManagerImpl.this.activeFluxes.remove(fluxId);
+        }
       }
-    }, () -> {
-      state.dataSink.tryEmitComplete();
-      if (fluxId != null && fluxId.startsWith("push-")) {
-        state.ackSink.tryEmitValue(Acknowledgement.success(fluxId));
-        this.activeFluxes.remove(fluxId);
+
+      @Override
+      protected void hookOnComplete() {
+        state.dataSink.tryEmitComplete();
+        if (fluxId != null && fluxId.startsWith("push-")) {
+          state.ackSink.tryEmitValue(Acknowledgement.success(fluxId));
+          FluxManagerImpl.this.activeFluxes.remove(fluxId);
+        }
+      }
+
+      @Override
+      protected void hookOnCancel() {
+        if (fluxId != null && fluxId.startsWith("push-")) {
+          state.ackSink.tryEmitValue(Acknowledgement.partial(fluxId));
+          FluxManagerImpl.this.activeFluxes.remove(fluxId);
+        }
       }
     });
 

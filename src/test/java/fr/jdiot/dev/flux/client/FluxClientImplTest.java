@@ -12,7 +12,9 @@ import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
 import reactor.netty.DisposableServer;
+import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.server.HttpServer;
 import reactor.test.StepVerifier;
 import tools.jackson.databind.ObjectMapper;
@@ -22,11 +24,12 @@ public class FluxClientImplTest {
   private static DisposableServer mockServer;
   private static FluxClient<String> fluxClient;
   private static final ObjectMapper mapper = new ObjectMapper();
+  private static final Sinks.Many<Acknowledgement> serverAcks = Sinks.many().replay().all();
 
   @BeforeAll
   public static void setUp() {
     FluxClientImplTest.mockServer = HttpServer
-        .create().protocol(reactor.netty.http.HttpProtocol.H2C).port(
+        .create().protocol(HttpProtocol.H2C).port(
             0)
         .route(routes -> routes
             .get("/api/v1/flux/test-pull",
@@ -42,7 +45,15 @@ public class FluxClientImplTest {
                   return res.status(500).send().then();
                 }
               });
-            }).post("/api/v1/flux/{fluxId}/ack", (_, res) -> res.status(200).send()))
+            }).post("/api/v1/flux/{fluxId}/ack", (req, res) -> req.receive().aggregate().asString().flatMap(body -> {
+              try {
+                final Acknowledgement ack = FluxClientImplTest.mapper.readValue(body, Acknowledgement.class);
+                FluxClientImplTest.serverAcks.tryEmitNext(ack);
+              } catch (final Exception e) {
+                // ignore
+              }
+              return res.status(200).send().then();
+            })))
         .bindNow();
 
     final FluxProperties properties = new FluxProperties();
@@ -65,6 +76,8 @@ public class FluxClientImplTest {
 
     StepVerifier.create(result).expectNext("chunk1").expectNext("chunk2").verifyComplete();
 
+    StepVerifier.create(FluxClientImplTest.serverAcks.asFlux().filter(a -> "test-pull".equals(a.getFluxId())))
+        .expectNextMatches(ack -> Status.SUCCESS.equals(ack.getStatus())).thenCancel().verify(Duration.ofSeconds(2));
   }
 
   @Test

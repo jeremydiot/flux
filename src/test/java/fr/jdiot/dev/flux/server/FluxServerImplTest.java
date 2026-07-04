@@ -124,7 +124,7 @@ public class FluxServerImplTest {
   }
 
   @Test
-  public void testPullAck() {
+  public void testAck() {
     final Acknowledgement ack = Acknowledgement.success("test-pull-ack");
 
     final HttpClient client = HttpClient.create().protocol(HttpProtocol.H2C)

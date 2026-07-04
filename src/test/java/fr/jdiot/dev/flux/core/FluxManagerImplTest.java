@@ -19,38 +19,77 @@ public class FluxManagerImplTest {
 
   @BeforeEach
   public void setUp() {
-    this.fluxManager = new FluxManagerImpl(new fr.jdiot.dev.flux.config.FluxProperties());
+    this.fluxManager = new FluxManagerImpl(new FluxProperties());
   }
 
   @Test
-  public void testPushThenPull() {
+  public void testBridgePullThenPush() {
     final ByteBuf chunk1 = Unpooled.copiedBuffer("chunk1", StandardCharsets.UTF_8);
     final ByteBuf chunk2 = Unpooled.copiedBuffer("chunk2", StandardCharsets.UTF_8);
 
     final Flux<ByteBuf> dataStream = Flux.just(chunk1, chunk2);
+
+    // ! pull first
+    final Flux<ByteBuf> pulledStream = this.fluxManager.getFlux("bridge-1");
+    // ! push second
     final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux("bridge-1", dataStream);
 
+    StepVerifier.create(pulledStream).expectNext(chunk1).expectNext(chunk2).verifyComplete();
+
+    final Acknowledgement ack = Acknowledgement.success("bridge-1-ack");
+
+    Assertions.assertEquals(1, this.fluxManager.getActiveFluxIds().size());
+
+    this.fluxManager.acknowledge("bridge-1", ack);
+
+    StepVerifier.create(ackMono).expectNext(ack).verifyComplete();
+
+    Assertions.assertTrue(this.fluxManager.getActiveFluxIds().isEmpty());
+
+  }
+
+  @Test
+  public void testBridgePushThenPull() {
+    final ByteBuf chunk1 = Unpooled.copiedBuffer("chunk1", StandardCharsets.UTF_8);
+    final ByteBuf chunk2 = Unpooled.copiedBuffer("chunk2", StandardCharsets.UTF_8);
+
+    final Flux<ByteBuf> dataStream = Flux.just(chunk1, chunk2);
+
+    // ! push first
+    final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux("bridge-1", dataStream);
+    // ! pull second
     final Flux<ByteBuf> pulledStream = this.fluxManager.getFlux("bridge-1");
 
     StepVerifier.create(pulledStream).expectNext(chunk1).expectNext(chunk2).verifyComplete();
 
-    final Acknowledgement ack = Acknowledgement.success("bridge-1");
+    final Acknowledgement ack = Acknowledgement.success("bridge-1-ack");
+
+    Assertions.assertEquals(1, this.fluxManager.getActiveFluxIds().size());
+
     this.fluxManager.acknowledge("bridge-1", ack);
 
     StepVerifier.create(ackMono).expectNext(ack).verifyComplete();
+
+    Assertions.assertTrue(this.fluxManager.getActiveFluxIds().isEmpty());
+
   }
 
   @Test
-  public void testPullThenPush() {
-    final Flux<ByteBuf> pulledStream = this.fluxManager.getFlux("bridge-2");
-
+  public void testPush() {
     final ByteBuf chunk1 = Unpooled.copiedBuffer("chunk1", StandardCharsets.UTF_8);
-    final Flux<ByteBuf> dataStream = Flux.just(chunk1);
+    final ByteBuf chunk2 = Unpooled.copiedBuffer("chunk2", StandardCharsets.UTF_8);
 
-    StepVerifier.create(pulledStream).then(() -> {
-      this.fluxManager.registerFlux("bridge-2", dataStream).subscribe();
-    }).expectNext(chunk1).verifyComplete();
+    final Flux<ByteBuf> dataStream = Flux.just(chunk1, chunk2);
+
+    final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux("push-1", dataStream);
+
+    StepVerifier.create(ackMono)
+        .expectNextMatches(ack -> "push-1".equals(ack.getFluxId()) && Acknowledgement.Status.SUCCESS.equals(ack.getStatus()))
+        .verifyComplete();
+
+    Assertions.assertTrue(this.fluxManager.getActiveFluxIds().isEmpty());
   }
+
 
   @Test
   public void testClearBrokenFluxes() throws InterruptedException {
