@@ -17,4 +17,11 @@ public class FluxProperties {
   private int maxConnectionsPerHost = 500;
   private int poolSize = 32;
   private int backPressureSize = 256;
+
+  private BackpressureStrategy backpressureStrategy = BackpressureStrategy.TCP_LAZY;
+
+  public enum BackpressureStrategy {
+    TCP_LAZY,
+    IN_MEMORY_BUFFER
+  }
 }

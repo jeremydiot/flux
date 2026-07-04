@@ -15,7 +15,8 @@ import fr.jdiot.dev.flux.codec.ByteArrayFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
-import fr.jdiot.dev.flux.core.FluxManagerImpl;
+import fr.jdiot.dev.flux.core.FluxManager;
+import fr.jdiot.dev.flux.core.FluxManagerFactory;
 import fr.jdiot.dev.flux.server.FluxServerImpl;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -27,7 +28,7 @@ import reactor.test.StepVerifier;
 public class FluxIntegrationTest {
 
   private static FluxServerImpl server;
-  private static FluxManagerImpl fluxManager;
+  private static FluxManager fluxManager;
   private static int port;
   private static DisposableServer disposableServer;
 
@@ -41,7 +42,7 @@ public class FluxIntegrationTest {
     FluxIntegrationTest.properties.setBackPressureSize(256);
 
     FluxIntegrationTest.dataCodec = new ByteArrayFluxCodec();
-    FluxIntegrationTest.fluxManager = org.mockito.Mockito.spy(new FluxManagerImpl(FluxIntegrationTest.properties));
+    FluxIntegrationTest.fluxManager = org.mockito.Mockito.spy(FluxManagerFactory.create(FluxIntegrationTest.properties));
 
     FluxIntegrationTest.server = new FluxServerImpl("127.0.0.1", 0, FluxIntegrationTest.properties,
         FluxIntegrationTest.fluxManager);
@@ -78,7 +79,7 @@ public class FluxIntegrationTest {
   }
 
   @Test
-  void testPushScenario5_2Push() {
+  void testPushScenario5_2Push() throws InterruptedException {
     final String fluxId = "push-flux-456";
     final Flux<byte[]> clientData = Flux.just("Push1", "Push2").map(String::getBytes);
     final FluxClientImpl<byte[]> client = new FluxClientImpl<>("http://127.0.0.1:" + FluxIntegrationTest.port,
@@ -86,9 +87,30 @@ public class FluxIntegrationTest {
 
     final Mono<Acknowledgement> ackMono = client.push(fluxId, clientData);
 
-    StepVerifier.create(ackMono)
-        .expectNextMatches(ack -> Status.SUCCESS.equals(ack.getStatus()) && fluxId.equals(ack.getFluxId()))
+    // Start pushing asynchronously
+    final CountDownLatch ackLatch = new CountDownLatch(1);
+    final Acknowledgement[] resultAck = new Acknowledgement[1];
+    ackMono.subscribe(ack -> {
+        resultAck[0] = ack;
+        ackLatch.countDown();
+    });
+
+    // Verify registerFlux was called on the server
+    org.mockito.Mockito.verify(FluxIntegrationTest.fluxManager, org.mockito.Mockito.timeout(2000))
+        .registerFlux(org.mockito.Mockito.eq(fluxId), org.mockito.Mockito.any());
+
+    // Consume the stream on the server side using getFlux to trigger hooks and unblock the push
+    StepVerifier.create(FluxIntegrationTest.fluxManager.getFlux(fluxId))
+        .thenConsumeWhile(buf -> {
+            io.netty.util.ReferenceCountUtil.safeRelease(buf);
+            return true;
+        })
         .verifyComplete();
+
+    // Verify the client received the ACK
+    Assertions.assertTrue(ackLatch.await(2, TimeUnit.SECONDS), "ACK was not received");
+    Assertions.assertEquals(Status.SUCCESS, resultAck[0].getStatus());
+    Assertions.assertEquals(fluxId, resultAck[0].getFluxId());
   }
 
   @Test
