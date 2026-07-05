@@ -17,11 +17,12 @@ import reactor.core.publisher.Sinks;
 
 public abstract class AbstractFluxManager implements FluxManager {
 
-  protected final Map<String, FluxState> activeFluxes = new ConcurrentHashMap<>();
   protected final FluxProperties properties;
-  protected final Disposable cleanupTask;
 
-  protected static class FluxState {
+  private final Map<String, FluxState> activeFluxes = new ConcurrentHashMap<>();
+  private final Disposable cleanupTask;
+
+  private static class FluxState {
     final Sinks.One<Flux<ByteBuf>> streamSink = Sinks.one();
     final Sinks.One<Acknowledgement> ackSink = Sinks.one();
     final long creationTimestamp = System.currentTimeMillis();
@@ -88,7 +89,7 @@ public abstract class AbstractFluxManager implements FluxManager {
   protected Mono<Acknowledgement> internalRegisterFlux(final String fluxId, final Supplier<Flux<ByteBuf>> processor) {
     final FluxState state = this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState());
 
-    state.streamSink.tryEmitValue(processor.get().doOnCancel(() -> {
+    final Flux<ByteBuf> hookedFLux = processor.get().doOnCancel(() -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
         state.ackSink.tryEmitValue(Acknowledgement.partial(fluxId));
       }
@@ -100,7 +101,9 @@ public abstract class AbstractFluxManager implements FluxManager {
       if (fluxId != null && fluxId.startsWith("push-")) {
         state.ackSink.tryEmitValue(Acknowledgement.success(fluxId));
       }
-    }));
+    });
+
+    state.streamSink.tryEmitValue(hookedFLux);
 
     // response to client push or client pull bridge
     return state.ackSink.asMono();
