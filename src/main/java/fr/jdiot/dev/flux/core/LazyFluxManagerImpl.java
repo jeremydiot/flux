@@ -14,7 +14,7 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
-public class LazyFluxManagerImpl implements FluxManager {
+public class LazyFluxManagerImpl extends AbstractFluxManager {
 
   private final FluxProperties properties;
 
@@ -36,14 +36,13 @@ public class LazyFluxManagerImpl implements FluxManager {
   private void clearBrokenFluxes() {
     final long now = System.currentTimeMillis();
     final long timeout = this.properties.getFluxTimeoutMillis();
-    this.activeFluxes.entrySet().removeIf(entry -> {
-      final FluxState state = entry.getValue();
+    this.activeFluxes.forEach((fluxId, state) -> {
       if (now - state.creationTimestamp > timeout) {
-        state.streamSink.tryEmitError(new TimeoutException("Flux timed out"));
-        state.ackSink.tryEmitValue(Acknowledgement.failed(entry.getKey(), "Flux timed out"));
-        return true;
+        if (this.activeFluxes.remove(fluxId, state)) {
+          state.streamSink.tryEmitValue(Flux.error(new TimeoutException("Flux timed out")));
+          state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId, "Flux timed out"));
+        }
       }
-      return false;
     });
   }
 
@@ -51,7 +50,7 @@ public class LazyFluxManagerImpl implements FluxManager {
     this.cleanupTask.dispose();
 
     this.activeFluxes.forEach((fluxId, state) -> {
-      state.streamSink.tryEmitError(new InterruptedException("Flux manager stopped"));
+      state.streamSink.tryEmitValue(Flux.error(new InterruptedException("Flux manager stopped")));
       state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId, "Flux manager stopped"));
     });
     this.activeFluxes.clear();

@@ -16,18 +16,14 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import reactor.util.concurrent.Queues;
 
-public class BufferedFluxManagerImpl implements FluxManager {
+public class BufferedFluxManagerImpl extends AbstractFluxManager {
 
   private final FluxProperties properties;
 
   private class FluxState {
-    final Sinks.Many<ByteBuf> dataSink;
+    final Sinks.One<Flux<ByteBuf>> streamSink = Sinks.one();
     final Sinks.One<Acknowledgement> ackSink = Sinks.one();
     final long creationTimestamp = System.currentTimeMillis();
-
-    FluxState(final int backPressureSize) {
-      this.dataSink = Sinks.many().unicast().onBackpressureBuffer(Queues.<ByteBuf>get(backPressureSize).get());
-    }
   }
 
   private final Map<String, FluxState> activeFluxes = new ConcurrentHashMap<>();
@@ -42,14 +38,13 @@ public class BufferedFluxManagerImpl implements FluxManager {
   private void clearBrokenFluxes() {
     final long now = System.currentTimeMillis();
     final long timeout = this.properties.getFluxTimeoutMillis();
-    this.activeFluxes.entrySet().removeIf(entry -> {
-      final FluxState state = entry.getValue();
+    this.activeFluxes.forEach((fluxId, state) -> {
       if (now - state.creationTimestamp > timeout) {
-        state.dataSink.tryEmitError(new TimeoutException("Flux timed out"));
-        state.ackSink.tryEmitValue(Acknowledgement.failed(entry.getKey(), "Flux timed out"));
-        return true;
+        if (this.activeFluxes.remove(fluxId, state)) {
+          state.streamSink.tryEmitValue(Flux.error(new TimeoutException("Flux timed out")));
+          state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId, "Flux timed out"));
+        }
       }
-      return false;
     });
   }
 
@@ -57,7 +52,7 @@ public class BufferedFluxManagerImpl implements FluxManager {
     this.cleanupTask.dispose();
 
     this.activeFluxes.forEach((fluxId, state) -> {
-      state.dataSink.tryEmitError(new InterruptedException("Flux manager stopped"));
+      state.streamSink.tryEmitValue(Flux.error(new InterruptedException("Flux manager stopped")));
       state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId, "Flux manager stopped"));
     });
     this.activeFluxes.clear();
@@ -68,23 +63,26 @@ public class BufferedFluxManagerImpl implements FluxManager {
    */
   @Override
   public Mono<Acknowledgement> registerFlux(final String fluxId, final Flux<ByteBuf> dataStream) {
-    final FluxState state = this.activeFluxes.computeIfAbsent(fluxId,
-        _ -> new FluxState(this.properties.getBackPressureSize()));
+
+    final FluxState state = this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState());
+
+    final Sinks.Many<ByteBuf> dataSink = Sinks.many().unicast()
+        .onBackpressureBuffer(Queues.<ByteBuf>get(this.properties.getBackPressureSize()).get());
 
     dataStream.subscribe(new BaseSubscriber<ByteBuf>() {
       @Override
       protected void hookOnNext(final ByteBuf buf) {
-        final Sinks.EmitResult result = state.dataSink.tryEmitNext(buf);
+        final Sinks.EmitResult result = dataSink.tryEmitNext(buf);
 
         if (result.isFailure()) {
           ReferenceCountUtil.safeRelease(buf);
-          state.dataSink.tryEmitError(new IllegalStateException("Backpressure overflow"));
+          dataSink.tryEmitError(new IllegalStateException("Backpressure overflow"));
         }
       }
 
       @Override
       protected void hookOnError(final Throwable err) {
-        state.dataSink.tryEmitError(err != null ? err : new IllegalStateException("Unknown flux error"));
+        dataSink.tryEmitError(err != null ? err : new IllegalStateException("Unknown flux error"));
         if (fluxId != null && fluxId.startsWith("push-")) {
           state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId));
         }
@@ -92,7 +90,7 @@ public class BufferedFluxManagerImpl implements FluxManager {
 
       @Override
       protected void hookOnComplete() {
-        state.dataSink.tryEmitComplete();
+        dataSink.tryEmitComplete();
         if (fluxId != null && fluxId.startsWith("push-")) {
           state.ackSink.tryEmitValue(Acknowledgement.success(fluxId));
         }
@@ -106,6 +104,8 @@ public class BufferedFluxManagerImpl implements FluxManager {
       }
     });
 
+    state.streamSink.tryEmitValue(dataSink.asFlux());
+
     // response to client push or client pull bridge
     return state.ackSink.asMono();
   }
@@ -117,14 +117,14 @@ public class BufferedFluxManagerImpl implements FluxManager {
   public Flux<ByteBuf> getFlux(final String fluxId) {
 
     if (fluxId != null && fluxId.startsWith("bridge-")) {
-      return this.activeFluxes.computeIfAbsent(fluxId,
-          _ -> new FluxState(this.properties.getBackPressureSize())).dataSink.asFlux().doOnDiscard(ByteBuf.class,
-              ReferenceCountUtil::safeRelease);
+      return this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState()).streamSink.asMono().flatMapMany(f -> f)
+          .doOnDiscard(ByteBuf.class, ReferenceCountUtil::safeRelease);
     }
 
     final FluxState state = this.activeFluxes.get(fluxId);
     if (state != null) {
-      Flux<ByteBuf> flux = state.dataSink.asFlux().doOnDiscard(ByteBuf.class, ReferenceCountUtil::safeRelease);
+      Flux<ByteBuf> flux = state.streamSink.asMono().flatMapMany(f -> f).doOnDiscard(ByteBuf.class,
+          ReferenceCountUtil::safeRelease);
       if (fluxId != null && fluxId.startsWith("push-")) {
 
         // remove here, backpressure consume push before pull call
