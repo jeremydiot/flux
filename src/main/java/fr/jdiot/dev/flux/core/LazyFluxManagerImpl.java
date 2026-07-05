@@ -67,17 +67,14 @@ public class LazyFluxManagerImpl implements FluxManager {
     final Flux<ByteBuf> hookedStream = dataStream.doOnCancel(() -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
         state.ackSink.tryEmitValue(Acknowledgement.partial(fluxId));
-        this.activeFluxes.remove(fluxId);
       }
     }).doOnError(_ -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
         state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId));
-        this.activeFluxes.remove(fluxId);
       }
     }).doOnComplete(() -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
         state.ackSink.tryEmitValue(Acknowledgement.success(fluxId));
-        this.activeFluxes.remove(fluxId);
       }
     });
 
@@ -99,9 +96,18 @@ public class LazyFluxManagerImpl implements FluxManager {
     }
 
     final FluxState state = this.activeFluxes.get(fluxId);
-    return state != null
-        ? state.streamSink.asMono().flatMapMany(f -> f).doOnDiscard(ByteBuf.class, ReferenceCountUtil::safeRelease)
-        : null;
+    if (state != null) {
+      Flux<ByteBuf> flux = state.streamSink.asMono().flatMapMany(f -> f).doOnDiscard(ByteBuf.class,
+          ReferenceCountUtil::safeRelease);
+
+      if (fluxId != null && fluxId.startsWith("push-")) {
+        flux = flux.doFinally(_ -> this.activeFluxes.remove(fluxId));
+      }
+
+      return flux;
+    }
+
+    return null;
   }
 
   /**
