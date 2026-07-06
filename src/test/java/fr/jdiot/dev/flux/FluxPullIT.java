@@ -73,7 +73,8 @@ public class FluxPullIT {
     });
 
     // 3. APP_CLIENT1 asking APP_SERVER to get data flux
-    final FluxClientImpl<byte[]> client = new FluxClientImpl<>("http://127.0.0.1:" + FluxPullIT.port, FluxPullIT.properties, FluxPullIT.dataCodec);
+    final FluxClientImpl<byte[]> client = new FluxClientImpl<>("http://127.0.0.1:" + FluxPullIT.port,
+        FluxPullIT.properties, FluxPullIT.dataCodec);
 
     // Client pulls and we verify that chunk data is correctly received
     StepVerifier.create(client.pull(fluxId).map(String::new).reduce("", String::concat)).expectNext("ChunkAChunkB")

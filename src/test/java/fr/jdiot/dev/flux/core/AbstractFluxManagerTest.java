@@ -77,7 +77,7 @@ public abstract class AbstractFluxManagerTest {
   }
 
   @Test
-  public void testPush() {
+  public void testPushAfterRegister() {
     final ByteBuf chunk1 = Unpooled.copiedBuffer("chunk1", StandardCharsets.UTF_8);
     final ByteBuf chunk2 = Unpooled.copiedBuffer("chunk2", StandardCharsets.UTF_8);
 
@@ -98,7 +98,30 @@ public abstract class AbstractFluxManagerTest {
   }
 
   @Test
-  public void testPull() {
+  public void testPushBeforeRegister() {
+    final ByteBuf chunk1 = Unpooled.copiedBuffer("chunk1", StandardCharsets.UTF_8);
+    final ByteBuf chunk2 = Unpooled.copiedBuffer("chunk2", StandardCharsets.UTF_8);
+
+    final Flux<ByteBuf> dataStream = Flux.just(chunk1, chunk2);
+
+    // Get flux before registering
+    final Flux<ByteBuf> pulledStream = this.fluxManager.getFlux("push-1");
+    
+    // Register the flux
+    final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux("push-1", dataStream);
+
+    StepVerifier.create(pulledStream).expectNext(chunk1).expectNext(chunk2).verifyComplete();
+
+    StepVerifier.create(ackMono)
+        .expectNextMatches(
+            ack -> "push-1".equals(ack.getFluxId()) && Acknowledgement.Status.SUCCESS.equals(ack.getStatus()))
+        .verifyComplete();
+
+    Assertions.assertTrue(this.fluxManager.getActiveFluxIds().isEmpty());
+  }
+
+  @Test
+  public void testPullAfterRegister() {
     final ByteBuf chunk1 = Unpooled.copiedBuffer("chunk1", StandardCharsets.UTF_8);
     final ByteBuf chunk2 = Unpooled.copiedBuffer("chunk2", StandardCharsets.UTF_8);
 
@@ -123,6 +146,40 @@ public abstract class AbstractFluxManagerTest {
   }
 
   @Test
+  public void testPullBeforeRegister() {
+    final ByteBuf chunk1 = Unpooled.copiedBuffer("chunk1", StandardCharsets.UTF_8);
+    final ByteBuf chunk2 = Unpooled.copiedBuffer("chunk2", StandardCharsets.UTF_8);
+
+    final Flux<ByteBuf> dataStream = Flux.just(chunk1, chunk2);
+
+    // Get flux before registering
+    final Flux<ByteBuf> pulledStream = this.fluxManager.getFlux("pull-1");
+    
+    // Register the flux
+    final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux("pull-1", dataStream);
+
+    StepVerifier.create(pulledStream).expectNext(chunk1).expectNext(chunk2).verifyComplete();
+
+    // In a pull scenario, stream completion does NOT automatically send an ACK.
+    // We explicitly acknowledge it as a client would.
+    this.fluxManager.acknowledge("pull-1", Acknowledgement.success("pull-1"));
+
+    StepVerifier.create(ackMono)
+        .expectNextMatches(
+            ack -> "pull-1".equals(ack.getFluxId()) && Acknowledgement.Status.SUCCESS.equals(ack.getStatus()))
+        .verifyComplete();
+
+    Assertions.assertTrue(this.fluxManager.getActiveFluxIds().isEmpty());
+  }
+
+  @Test
+  public void testInvalidFluxId() {
+    Assertions.assertThrows(IllegalArgumentException.class, () -> this.fluxManager.getFlux("invalid-1"));
+    Assertions.assertThrows(IllegalArgumentException.class, () -> this.fluxManager.registerFlux("invalid-2", Flux.empty()));
+    Assertions.assertThrows(IllegalArgumentException.class, () -> this.fluxManager.acknowledge("invalid-3", Acknowledgement.success("invalid-3")));
+  }
+
+  @Test
   public void testRegisterFluxTimeout() {
     final FluxProperties properties = new FluxProperties();
     properties.setFluxTimeoutMillis(10);
@@ -131,19 +188,19 @@ public abstract class AbstractFluxManagerTest {
     final FluxManager manager = this.createFluxManager(properties);
 
     // Register a flux
-    final Mono<Acknowledgement> ackMono = manager.registerFlux("stale-flux", Flux.never());
+    final Mono<Acknowledgement> ackMono = manager.registerFlux("push-stale-flux", Flux.never());
 
     // Verify it's active
-    Assertions.assertTrue(manager.getActiveFluxIds().contains("stale-flux"));
+    Assertions.assertTrue(manager.getActiveFluxIds().contains("push-stale-flux"));
 
     // StepVerifier will wait for the emission from the background cleanup task
     StepVerifier.create(ackMono)
         .expectNextMatches(
-            ack -> "stale-flux".equals(ack.getFluxId()) && Acknowledgement.Status.FAILED.equals(ack.getStatus()))
+            ack -> "push-stale-flux".equals(ack.getFluxId()) && Acknowledgement.Status.FAILED.equals(ack.getStatus()))
         .expectComplete().verify(Duration.ofMillis(200));
 
     // Verify it's removed
-    Assertions.assertFalse(manager.getActiveFluxIds().contains("stale-flux"));
+    Assertions.assertFalse(manager.getActiveFluxIds().contains("push-stale-flux"));
   }
 
   @Test

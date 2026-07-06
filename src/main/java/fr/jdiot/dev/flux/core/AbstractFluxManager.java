@@ -34,30 +34,28 @@ public abstract class AbstractFluxManager implements FluxManager {
         .subscribe(_ -> this.clearBrokenFluxes());
   }
 
+  private void validateFluxId(final String fluxId) {
+    if (fluxId == null || (!fluxId.startsWith("bridge-") && !fluxId.startsWith("push-") && !fluxId.startsWith("pull-"))) {
+      throw new IllegalArgumentException("Invalid fluxId: must start with bridge-, push-, or pull-");
+    }
+  }
+
   /**
    * client pull request or client pull bridge request
    */
   @Override
   public Flux<ByteBuf> getFlux(final String fluxId) {
+    this.validateFluxId(fluxId);
 
-    if (fluxId != null && fluxId.startsWith("bridge-")) {
-      return this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState()).streamSink.asMono().flatMapMany(f -> f)
-          .doOnDiscard(ByteBuf.class, ReferenceCountUtil::safeRelease);
+    final FluxState state = this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState());
+    Flux<ByteBuf> flux = state.streamSink.asMono().flatMapMany(f -> f)
+        .doOnDiscard(ByteBuf.class, ReferenceCountUtil::safeRelease);
+
+    if (fluxId.startsWith("push-")) {
+      flux = flux.doFinally(_ -> this.activeFluxes.remove(fluxId));
     }
 
-    final FluxState state = this.activeFluxes.get(fluxId);
-    if (state != null) {
-      Flux<ByteBuf> flux = state.streamSink.asMono().flatMapMany(f -> f).doOnDiscard(ByteBuf.class,
-          ReferenceCountUtil::safeRelease);
-
-      if (fluxId != null && fluxId.startsWith("push-")) {
-        flux = flux.doFinally(_ -> this.activeFluxes.remove(fluxId));
-      }
-
-      return flux;
-    }
-
-    return null;
+    return flux;
   }
 
   /**
@@ -65,6 +63,8 @@ public abstract class AbstractFluxManager implements FluxManager {
    */
   @Override
   public void acknowledge(final String fluxId, final Acknowledgement ack) {
+    this.validateFluxId(fluxId);
+    
     final FluxState state = this.activeFluxes.remove(fluxId);
     if (state != null) {
       state.ackSink.tryEmitValue(ack);
@@ -87,6 +87,7 @@ public abstract class AbstractFluxManager implements FluxManager {
   }
 
   protected Mono<Acknowledgement> internalRegisterFlux(final String fluxId, final Supplier<Flux<ByteBuf>> processor) {
+    this.validateFluxId(fluxId);
     final FluxState state = this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState());
 
     final Flux<ByteBuf> hookedFLux = processor.get().doOnCancel(() -> {
