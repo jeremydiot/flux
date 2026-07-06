@@ -19,6 +19,13 @@ public interface FluxCodec<T> {
   T decode(ByteBuf buffer);
 
   /**
+   * Deserializes a byte array to an object.
+   */
+  default T decode(byte[] bytes) {
+    return decode(io.netty.buffer.Unpooled.wrappedBuffer(bytes));
+  }
+
+  /**
    * Serializes a Flux of objects to a Flux of ByteBufs.
    */
   default Flux<ByteBuf> encodeFlux(final Flux<T> flux) {

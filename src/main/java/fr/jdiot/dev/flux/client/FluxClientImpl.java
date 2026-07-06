@@ -54,7 +54,7 @@ public class FluxClientImpl<T> implements FluxClient<T> {
           if (res.status().code() >= 400) {
             return Mono.error(new FluxException("Failed to push flux: " + res.status().code()));
           }
-          return byteBufMono.map(buf -> this.ackCodec.decode(buf));
+          return byteBufMono.asByteArray().map(bytes -> this.ackCodec.decode(bytes));
         });
   }
 }

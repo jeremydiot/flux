@@ -6,7 +6,6 @@ import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.FluxManager;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
@@ -87,7 +86,7 @@ public class FluxServerImpl implements FluxServer {
     }
     return res.send(req.receive().aggregate().asByteArray().flatMap(bytes -> {
       try {
-        final Acknowledgement ack = this.ackCodec.decode(Unpooled.wrappedBuffer(bytes));
+        final Acknowledgement ack = this.ackCodec.decode(bytes);
         this.fluxManager.acknowledge(fluxId, ack);
         return Mono.empty();
       } catch (final Exception e) {
