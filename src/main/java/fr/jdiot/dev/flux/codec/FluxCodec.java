@@ -1,6 +1,7 @@
 package fr.jdiot.dev.flux.codec;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 
 /**
@@ -21,8 +22,8 @@ public interface FluxCodec<T> {
   /**
    * Deserializes a byte array to an object.
    */
-  default T decode(byte[] bytes) {
-    return decode(io.netty.buffer.Unpooled.wrappedBuffer(bytes));
+  default T decode(final byte[] bytes) {
+    return this.decode(Unpooled.wrappedBuffer(bytes));
   }
 
   /**
