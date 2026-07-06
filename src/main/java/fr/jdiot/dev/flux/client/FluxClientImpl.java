@@ -2,8 +2,8 @@ package fr.jdiot.dev.flux.client;
 
 import java.time.Duration;
 
+import fr.jdiot.dev.flux.codec.AvroFluxCodec;
 import fr.jdiot.dev.flux.codec.FluxCodec;
-import fr.jdiot.dev.flux.codec.JacksonFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.exception.FluxException;
@@ -16,7 +16,7 @@ public class FluxClientImpl<T> implements FluxClient<T> {
 
   private final HttpClient httpClient;
   private final FluxCodec<T> dataCodec;
-  private final FluxCodec<Acknowledgement> ackCodec = new JacksonFluxCodec<>(Acknowledgement.class);
+  private final FluxCodec<Acknowledgement> ackCodec = new AvroFluxCodec<>(Acknowledgement.class);
 
   public FluxClientImpl(final String baseUrl, final FluxProperties properties, final FluxCodec<T> dataCodec) {
     this.dataCodec = dataCodec;
@@ -38,8 +38,8 @@ public class FluxClientImpl<T> implements FluxClient<T> {
   }
 
   private void sendAck(final Acknowledgement ack) {
-    this.httpClient.headers(h -> h.add("Content-Type", "application/json")).post()
-        .uri("/api/v1/flux/" + ack.getFluxId() + "/ack").send(Mono.just(this.ackCodec.encode(ack))).response()
+    this.httpClient.headers(h -> h.add("Transfer-Encoding", "chunked").add("Content-Type", "application/octet-stream"))
+        .post().uri("/api/v1/flux/" + ack.getFluxId() + "/ack").send(Mono.just(this.ackCodec.encode(ack))).response()
         .subscribe(_ -> {
           // NOOP
         }, err -> System.err.println("Failed to send ACK for fluxId " + ack.getFluxId() + ": " + err.getMessage()));

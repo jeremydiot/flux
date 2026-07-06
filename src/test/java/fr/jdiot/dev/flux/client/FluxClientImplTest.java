@@ -1,5 +1,6 @@
 package fr.jdiot.dev.flux.client;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 import org.junit.jupiter.api.AfterAll;
@@ -7,10 +8,12 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import fr.jdiot.dev.flux.codec.JacksonFluxCodec;
+import fr.jdiot.dev.flux.codec.AvroFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
@@ -18,24 +21,25 @@ import reactor.netty.DisposableServer;
 import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.server.HttpServer;
 import reactor.test.StepVerifier;
-import tools.jackson.databind.ObjectMapper;
 
 public class FluxClientImplTest {
 
   private static DisposableServer mockServer;
   private static FluxClient<String> fluxClient;
-  private static final ObjectMapper mapper = new ObjectMapper();
+  private static final AvroFluxCodec<Acknowledgement> ackCodec = new AvroFluxCodec<>(Acknowledgement.class);
+  private static final AvroFluxCodec<String> dataCodec = new AvroFluxCodec<>(String.class);
   private static final Sinks.Many<Acknowledgement> serverAcks = Sinks.many().replay().all();
 
   @BeforeAll
   public static void setUp() {
     FluxClientImplTest.mockServer = HttpServer
-        .create().protocol(HttpProtocol.H2C).port(
-            0)
+        .create().protocol(
+            HttpProtocol.H2C)
+        .port(0)
         .route(routes -> routes
             .get("/api/v1/flux/test-pull",
-                (_, res) -> res.sendString(
-                    Flux.just("\"chunk1\"").concatWith(Mono.delay(Duration.ofMillis(50)).map(_ -> "\"chunk2\""))))
+                (_, res) -> res.send(Flux.just(FluxClientImplTest.dataCodec.encode("chunk1")).concatWith(
+                    Mono.delay(Duration.ofMillis(50)).map(_ -> FluxClientImplTest.dataCodec.encode("chunk2")))))
             .post("/api/v1/flux/{fluxId}", (req, res) -> {
               Assertions.assertEquals("chunked", req.requestHeaders().get("Transfer-Encoding"));
               Assertions.assertEquals("application/octet-stream", req.requestHeaders().get("Content-Type"));
@@ -43,14 +47,19 @@ public class FluxClientImplTest {
               return req.receive().aggregate().asString().flatMap(_ -> {
                 try {
                   final Acknowledgement ack = Acknowledgement.success(fluxId);
-                  return res.sendString(Mono.just(FluxClientImplTest.mapper.writeValueAsString(ack))).then();
+                  final ByteBuf buf = FluxClientImplTest.ackCodec.encode(ack);
+                  final byte[] bytes = new byte[buf.readableBytes()];
+                  buf.readBytes(bytes);
+                  buf.release();
+                  return res.sendByteArray(Mono.just(bytes)).then();
                 } catch (final Exception e) {
                   return res.status(500).send().then();
                 }
               });
             }).post("/api/v1/flux/{fluxId}/ack", (req, res) -> req.receive().aggregate().asString().flatMap(body -> {
               try {
-                final Acknowledgement ack = FluxClientImplTest.mapper.readValue(body, Acknowledgement.class);
+                final ByteBuf buf = Unpooled.wrappedBuffer(body.getBytes(StandardCharsets.UTF_8));
+                final Acknowledgement ack = FluxClientImplTest.ackCodec.decode(buf);
                 FluxClientImplTest.serverAcks.tryEmitNext(ack);
               } catch (final Exception e) {
                 // ignore
@@ -60,10 +69,9 @@ public class FluxClientImplTest {
         .bindNow();
 
     final FluxProperties properties = new FluxProperties();
-    final JacksonFluxCodec<String> dataCodec = new JacksonFluxCodec<>(FluxClientImplTest.mapper, String.class);
 
     FluxClientImplTest.fluxClient = new FluxClientImpl<>("http://localhost:" + FluxClientImplTest.mockServer.port(),
-        properties, dataCodec);
+        properties, FluxClientImplTest.dataCodec);
   }
 
   @AfterAll

@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.client.FluxClientImpl;
+import fr.jdiot.dev.flux.codec.AvroFluxCodec;
 import fr.jdiot.dev.flux.codec.ByteArrayFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
@@ -16,6 +17,7 @@ import fr.jdiot.dev.flux.core.Acknowledgement.Status;
 import fr.jdiot.dev.flux.core.FluxManager;
 import fr.jdiot.dev.flux.core.FluxManagerFactory;
 import fr.jdiot.dev.flux.server.FluxServerImpl;
+import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -114,7 +116,13 @@ public class FluxPushIT {
         .route(routes -> routes.post("/api/v1/flux/" + fluxId, (req, res) -> {
           transferEncoding[0] = req.requestHeaders().get("Transfer-Encoding");
           contentType[0] = req.requestHeaders().get("Content-Type");
-          return res.status(200).sendString(Mono.just("{\"status\":\"SUCCESS\",\"fluxId\":\"" + fluxId + "\"}"));
+          final AvroFluxCodec<Acknowledgement> ackCodec = new AvroFluxCodec<>(Acknowledgement.class);
+          final Acknowledgement ack = Acknowledgement.success(fluxId);
+          final ByteBuf buf = ackCodec.encode(ack);
+          final byte[] bytes = new byte[buf.readableBytes()];
+          buf.readBytes(bytes);
+          buf.release();
+          return res.status(200).sendByteArray(Mono.just(bytes));
         })).bindNow();
 
     try {

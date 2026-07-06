@@ -9,17 +9,14 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
-import tools.jackson.databind.ObjectMapper;
 
-public class JacksonFluxCodecTest {
+public class AvroFluxCodecTest {
 
-  private JacksonFluxCodec<Acknowledgement> codec;
-  private ObjectMapper mapper;
+  private AvroFluxCodec<Acknowledgement> codec;
 
   @BeforeEach
   public void setUp() {
-    this.mapper = new ObjectMapper();
-    this.codec = new JacksonFluxCodec<>(this.mapper, Acknowledgement.class);
+    this.codec = new AvroFluxCodec<>(Acknowledgement.class);
   }
 
   @Test
@@ -30,18 +27,19 @@ public class JacksonFluxCodecTest {
     final Acknowledgement decoded = this.codec.decode(buf);
     Assertions.assertEquals("test-id", decoded.getFluxId());
     Assertions.assertEquals(Acknowledgement.Status.SUCCESS, decoded.getStatus());
-
-    // No release needed for Unpooled.wrappedBuffer(byte[]) normally since it's
-    // heap,
-    // but good practice.
   }
 
   @Test
   public void testDecodeWithDirectBuffer() throws Exception {
     final Acknowledgement ack = Acknowledgement.failed("direct-id");
-    final byte[] bytes = this.mapper.writeValueAsBytes(ack);
+    
+    // Encode to get the bytes
+    final ByteBuf encodedBuf = this.codec.encode(ack);
+    final byte[] bytes = new byte[encodedBuf.readableBytes()];
+    encodedBuf.readBytes(bytes);
+    encodedBuf.release();
 
-    // Allocate direct buffer to test the InputStream fallback logic
+    // Allocate direct buffer to test the InputStream logic
     final ByteBuf directBuf = Unpooled.directBuffer(bytes.length);
     directBuf.writeBytes(bytes);
 

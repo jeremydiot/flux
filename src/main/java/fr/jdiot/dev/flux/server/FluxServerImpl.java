@@ -1,7 +1,7 @@
 package fr.jdiot.dev.flux.server;
 
+import fr.jdiot.dev.flux.codec.AvroFluxCodec;
 import fr.jdiot.dev.flux.codec.FluxCodec;
-import fr.jdiot.dev.flux.codec.JacksonFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.FluxManager;
@@ -20,7 +20,7 @@ public class FluxServerImpl implements FluxServer {
 
   private final FluxProperties properties;
   private final FluxManager fluxManager;
-  private final FluxCodec<Acknowledgement> ackCodec = new JacksonFluxCodec<>(Acknowledgement.class);
+  private final FluxCodec<Acknowledgement> ackCodec = new AvroFluxCodec<>(Acknowledgement.class);
   private final String host;
   private final int port;
 
@@ -75,7 +75,8 @@ public class FluxServerImpl implements FluxServer {
 
     final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux(fluxId, req.receive().map(ByteBuf::retain));
 
-    return res.header("Content-Type", "application/json").send(ackMono.map(ack -> this.ackCodec.encode(ack)));
+    return res.header("Transfer-Encoding", "chunked").header("Content-Type", "application/octet-stream")
+        .send(ackMono.map(ack -> this.ackCodec.encode(ack)));
   }
 
   private org.reactivestreams.Publisher<Void> handleAckRequest(final HttpServerRequest req,

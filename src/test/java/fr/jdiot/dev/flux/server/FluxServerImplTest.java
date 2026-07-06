@@ -14,7 +14,7 @@ import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
 import fr.jdiot.dev.flux.codec.FluxCodec;
-import fr.jdiot.dev.flux.codec.JacksonFluxCodec;
+import fr.jdiot.dev.flux.codec.AvroFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
@@ -28,7 +28,6 @@ import reactor.netty.DisposableServer;
 import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.client.HttpClient;
 import reactor.test.StepVerifier;
-import tools.jackson.databind.ObjectMapper;
 
 public class FluxServerImplTest {
 
@@ -40,7 +39,7 @@ public class FluxServerImplTest {
   @BeforeEach
   public void setUp() {
     this.mockFluxManager = Mockito.mock(FluxManager.class);
-    this.ackCodec = new JacksonFluxCodec<>(new ObjectMapper(), Acknowledgement.class);
+    this.ackCodec = new AvroFluxCodec<>(Acknowledgement.class);
     final FluxProperties properties = new FluxProperties();
 
     this.server = new FluxServerImpl("localhost", 0, properties, this.mockFluxManager);
