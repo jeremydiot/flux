@@ -3,6 +3,7 @@ package fr.jdiot.dev.flux.client;
 import java.time.Duration;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -36,6 +37,8 @@ public class FluxClientImplTest {
                 (_, res) -> res.sendString(
                     Flux.just("\"chunk1\"").concatWith(Mono.delay(Duration.ofMillis(50)).map(_ -> "\"chunk2\""))))
             .post("/api/v1/flux/{fluxId}", (req, res) -> {
+              Assertions.assertEquals("chunked", req.requestHeaders().get("Transfer-Encoding"));
+              Assertions.assertEquals("application/octet-stream", req.requestHeaders().get("Content-Type"));
               final String fluxId = req.param("fluxId");
               return req.receive().aggregate().asString().flatMap(_ -> {
                 try {

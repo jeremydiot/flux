@@ -21,6 +21,8 @@ import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
+import reactor.netty.http.HttpProtocol;
+import reactor.netty.http.client.HttpClient;
 import reactor.test.StepVerifier;
 
 public class FluxPullIT {
@@ -87,5 +89,19 @@ public class FluxPullIT {
     Assertions.assertNotNull(receivedAck[0], "Acknowledgement should not be null");
     Assertions.assertEquals(Status.SUCCESS, receivedAck[0].getStatus(), "Acknowledgement status should be SUCCESS");
     Assertions.assertEquals(fluxId, receivedAck[0].getFluxId(), "Acknowledgement fluxId should match");
+  }
+
+  @Test
+  void testPullHeaders() {
+    final String fluxId = "pull-flux-it-headers";
+    final Flux<ByteBuf> testData = Flux.just("Chunk").map(String::getBytes).map(Unpooled::wrappedBuffer);
+    FluxPullIT.fluxManager.registerFlux(fluxId, testData);
+
+    StepVerifier.create(HttpClient.create().protocol(HttpProtocol.H2C).host("127.0.0.1").port(FluxPullIT.port).get()
+        .uri("/api/v1/flux/" + fluxId).responseSingle((res, body) -> {
+          Assertions.assertEquals("chunked", res.responseHeaders().get("Transfer-Encoding"));
+          Assertions.assertEquals("application/octet-stream", res.responseHeaders().get("Content-Type"));
+          return body.asString();
+        })).expectNext("Chunk").verifyComplete();
   }
 }

@@ -65,8 +65,11 @@ public class FluxServerImplTest {
     // Execute Request
     final HttpClient client = HttpClient.create().protocol(HttpProtocol.H2C)
         .baseUrl("http://localhost:" + this.disposableServer.port());
-    final Flux<String> response = client.get().uri("/api/v1/flux/test-pull").responseContent()
-        .map(buf -> buf.toString(StandardCharsets.UTF_8));
+    final Flux<String> response = client.get().uri("/api/v1/flux/test-pull").responseConnection((res, connection) -> {
+        Assertions.assertEquals("chunked", res.responseHeaders().get("Transfer-Encoding"));
+        Assertions.assertEquals("application/octet-stream", res.responseHeaders().get("Content-Type"));
+        return connection.inbound().receive().map(buf -> buf.toString(StandardCharsets.UTF_8));
+    });
 
     StepVerifier.create(response).expectNext("chunk1").expectNext("chunk2").verifyComplete();
 

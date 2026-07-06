@@ -20,6 +20,8 @@ import io.netty.util.ReferenceCountUtil;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
+import reactor.netty.http.HttpProtocol;
+import reactor.netty.http.server.HttpServer;
 import reactor.test.StepVerifier;
 
 public class FluxPushIT {
@@ -99,5 +101,32 @@ public class FluxPushIT {
     Assertions.assertNotNull(resultAck[0], "Acknowledgement should not be null");
     Assertions.assertEquals(Status.SUCCESS, resultAck[0].getStatus(), "Acknowledgement status should be SUCCESS");
     Assertions.assertEquals(fluxId, resultAck[0].getFluxId(), "Acknowledgement fluxId should match");
+  }
+
+  @Test
+  void testPushHeaders() {
+    final String fluxId = "push-flux-it-headers";
+
+    final String[] transferEncoding = new String[1];
+    final String[] contentType = new String[1];
+
+    final DisposableServer dummyServer = HttpServer.create().protocol(HttpProtocol.H2C).host("127.0.0.1").port(0)
+        .route(routes -> routes.post("/api/v1/flux/" + fluxId, (req, res) -> {
+          transferEncoding[0] = req.requestHeaders().get("Transfer-Encoding");
+          contentType[0] = req.requestHeaders().get("Content-Type");
+          return res.status(200).sendString(Mono.just("{\"status\":\"SUCCESS\",\"fluxId\":\"" + fluxId + "\"}"));
+        })).bindNow();
+
+    try {
+      final FluxClientImpl<byte[]> client = new FluxClientImpl<>("http://127.0.0.1:" + dummyServer.port(),
+          FluxPushIT.properties, FluxPushIT.dataCodec);
+
+      client.push(fluxId, Flux.just(new byte[] { 1, 2, 3 })).block();
+
+      Assertions.assertEquals("chunked", transferEncoding[0]);
+      Assertions.assertEquals("application/octet-stream", contentType[0]);
+    } finally {
+      dummyServer.disposeNow();
+    }
   }
 }
