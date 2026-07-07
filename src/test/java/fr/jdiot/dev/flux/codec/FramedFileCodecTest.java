@@ -1,5 +1,9 @@
 package fr.jdiot.dev.flux.codec;
 
+import java.util.AbstractMap;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -36,14 +40,14 @@ class FramedFileCodecTest {
     final Flux<FluxFile<String>> decodedStream = framedCodec.decode(encodedStream);
 
     StepVerifier.create(decodedStream
-        .concatMap(decodedFile -> decodedFile.getDataStream().reduce(new java.util.ArrayList<Byte>(), (list, buf) -> {
+        .concatMap(decodedFile -> decodedFile.getDataStream().reduce(new ArrayList<Byte>(), (list, buf) -> {
           while (buf.readableBytes() > 0)
             list.add(buf.readByte());
           buf.release();
           return list;
-        }).map(bytes -> new java.util.AbstractMap.SimpleEntry<>(decodedFile, bytes)))).assertNext(entry -> {
+        }).map(bytes -> new AbstractMap.SimpleEntry<>(decodedFile, bytes)))).assertNext(entry -> {
           final FluxFile<String> decodedFile = entry.getKey();
-          final java.util.List<Byte> bytes = entry.getValue();
+          final List<Byte> bytes = entry.getValue();
 
           Assertions.assertEquals("image_metadata", decodedFile.getMetadata());
           Assertions.assertEquals(5, decodedFile.getDataLength());
@@ -56,7 +60,7 @@ class FramedFileCodecTest {
           Assertions.assertEquals(5, bytes.get(4).byteValue());
         }).assertNext(entry -> {
           final FluxFile<String> decodedFile = entry.getKey();
-          final java.util.List<Byte> bytes = entry.getValue();
+          final List<Byte> bytes = entry.getValue();
 
           Assertions.assertEquals("video_metadata", decodedFile.getMetadata());
           Assertions.assertEquals(3, decodedFile.getDataLength());
@@ -79,13 +83,14 @@ class FramedFileCodecTest {
       fileData[i] = (byte) i;
 
     final FluxFile<String> file1 = FluxFile.<String>builder().metadata(metadata).dataLength(fileData.length)
-        .dataStream(Flux.just(Unpooled.wrappedBuffer(fileData))).build();
+        .dataStream(Flux.range(0, (fileData.length + 4) / 5)
+            .map(i -> Unpooled.wrappedBuffer(fileData, i * 5, Math.min(5, fileData.length - i * 5)))).build();
 
     final Flux<ByteBuf> encodedStream = framedCodec.encode(Flux.just(file1));
 
     // Simulate network fragmentation by splitting into 1-byte chunks
     final Flux<ByteBuf> fragmentedStream = encodedStream.concatMapIterable(buf -> {
-      final java.util.List<ByteBuf> chunks = new java.util.ArrayList<>();
+      final List<ByteBuf> chunks = new ArrayList<>();
       while (buf.readableBytes() > 0) {
         chunks.add(buf.readRetainedSlice(1));
       }
@@ -99,7 +104,7 @@ class FramedFileCodecTest {
       count += buf.readableBytes();
       buf.release();
       return count;
-    }).map(count -> new java.util.AbstractMap.SimpleEntry<>(decodedFile, count)))).assertNext(entry -> {
+    }).map(count -> new AbstractMap.SimpleEntry<>(decodedFile, count)))).assertNext(entry -> {
       final FluxFile<String> decodedFile = entry.getKey();
       final Integer count = entry.getValue();
 

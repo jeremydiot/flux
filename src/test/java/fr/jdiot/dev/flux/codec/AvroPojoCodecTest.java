@@ -7,7 +7,7 @@ import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.exception.FluxException;
 import io.netty.buffer.ByteBuf;
 
-class AvroAckCodecTest {
+class AvroPojoCodecTest {
 
   @Test
   void shouldEncodeAndDecodeSuccessfully() {
