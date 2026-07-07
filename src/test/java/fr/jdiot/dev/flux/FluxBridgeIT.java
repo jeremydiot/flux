@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -127,7 +128,7 @@ public class FluxBridgeIT {
 
     // We read all files from the directory to test
     final List<FluxFile<String>> filesToPush = new ArrayList<>();
-    Files.list(dicomDir).filter(Files::isRegularFile).forEach(path -> {
+    Files.list(dicomDir).filter(Files::isRegularFile).parallel().forEach(path -> {
       try {
         final byte[] data = Files.readAllBytes(path);
         filesToPush
@@ -160,7 +161,7 @@ public class FluxBridgeIT {
     // established and waiting on the server.
     Thread.sleep(500);
 
-    final Flux<ByteBuf> fluxToPush = framedCodec.encode(Flux.fromIterable(filesToPush));
+    final Flux<ByteBuf> fluxToPush = framedCodec.encode(Flux.fromStream(filesToPush.stream().parallel()));
 
     final Mono<Acknowledgement> pushAck = client2.push(fluxId, fluxToPush);
 
@@ -171,6 +172,10 @@ public class FluxBridgeIT {
     Assertions.assertTrue(latch.await(5, TimeUnit.SECONDS), "Client 1 pull did not complete in time");
 
     Assertions.assertEquals(filesToPush.size(), results.size());
+
+    filesToPush.sort(Comparator.comparing(FluxFile::getMetadata));
+    results.sort(Comparator.comparing(FluxFile::getMetadata));
+
     for (int i = 0; i < filesToPush.size(); i++) {
       FluxBridgeIT.log.info("File {} sent metadata: {}, size: {}", i + 1, filesToPush.get(i).getMetadata(),
           filesToPush.get(i).getDataLength());
