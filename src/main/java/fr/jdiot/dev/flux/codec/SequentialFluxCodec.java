@@ -42,7 +42,12 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
       header1.writeInt(metadataLength);
 
       final ByteBuf header2 = PooledByteBufAllocator.DEFAULT.buffer(4);
+
       // The protocol uses 4 bytes for data length (M)
+      // Validate file size, for prevent signed integer overflow. limit is ~4.29 Go
+      if (file.getDataLength() < 0 || file.getDataLength() > 4294967295L) {
+        throw new IllegalArgumentException("File size exceeds protocol limit of 4GB");
+      }
       header2.writeInt((int) file.getDataLength());
 
       final Flux<ByteBuf> headers = Flux.just(header1, metadataBuf, header2);
@@ -179,7 +184,10 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
               this.innerDemand.addAndGet(n);
               this.request(1);
             }).doOnCancel(() -> {
-              // Inner stream cancelled
+              // If the consumer cancels the file download midway, we MUST drain the rest 
+              // of the bytes from the network socket to avoid corrupting the stream for the next file.
+              this.innerDemand.set(Long.MAX_VALUE); // Fake infinite demand to drain
+              this.request(1); // Wake up Netty
             });
 
             final RawFile file = new RawFile(this.metadataBytes, this.dataLength, dataStream);
@@ -198,7 +206,10 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
             if (toRead > 0) {
               final ByteBuf dataChunk = this.buffer.alloc().buffer(toRead);
               this.buffer.readBytes(dataChunk);
-              this.dataSink.tryEmitNext(dataChunk);
+              if (this.dataSink.tryEmitNext(dataChunk).isFailure()) {
+                // If the sink is cancelled or overflows, we must release the chunk to prevent memory leaks
+                dataChunk.release();
+              }
               this.dataRead += toRead;
               this.innerDemand.decrementAndGet();
               this.buffer.discardReadComponents();
