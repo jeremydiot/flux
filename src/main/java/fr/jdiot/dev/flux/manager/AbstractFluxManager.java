@@ -1,4 +1,4 @@
-package fr.jdiot.dev.flux.core;
+package fr.jdiot.dev.flux.manager;
 
 import java.time.Duration;
 import java.util.Map;
@@ -7,7 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
-import fr.jdiot.dev.flux.config.FluxProperties;
+import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
 import reactor.core.Disposable;
@@ -17,7 +17,7 @@ import reactor.core.publisher.Sinks;
 
 public abstract class AbstractFluxManager implements FluxManager {
 
-  protected final FluxProperties properties;
+  protected final FluxManagerProperties properties;
 
   private final Map<String, FluxState> activeFluxes = new ConcurrentHashMap<>();
   private final Disposable cleanupTask;
@@ -28,14 +28,15 @@ public abstract class AbstractFluxManager implements FluxManager {
     final long creationTimestamp = System.currentTimeMillis();
   }
 
-  protected AbstractFluxManager(final FluxProperties properties) {
+  protected AbstractFluxManager(final FluxManagerProperties properties) {
     this.properties = properties;
-    this.cleanupTask = Flux.interval(Duration.ofMillis(properties.getFluxCleanupIntervalMillis()))
+    this.cleanupTask = Flux.interval(Duration.ofMillis(properties.getCleanupIntervalMillis()))
         .subscribe(_ -> this.clearBrokenFluxes());
   }
 
   private void validateFluxId(final String fluxId) {
-    if (fluxId == null || (!fluxId.startsWith("bridge-") && !fluxId.startsWith("push-") && !fluxId.startsWith("pull-"))) {
+    if (fluxId == null
+        || (!fluxId.startsWith("bridge-") && !fluxId.startsWith("push-") && !fluxId.startsWith("pull-"))) {
       throw new IllegalArgumentException("Invalid fluxId: must start with bridge-, push-, or pull-");
     }
   }
@@ -48,8 +49,8 @@ public abstract class AbstractFluxManager implements FluxManager {
     this.validateFluxId(fluxId);
 
     final FluxState state = this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState());
-    Flux<ByteBuf> flux = state.streamSink.asMono().flatMapMany(f -> f)
-        .doOnDiscard(ByteBuf.class, ReferenceCountUtil::safeRelease);
+    Flux<ByteBuf> flux = state.streamSink.asMono().flatMapMany(f -> f).doOnDiscard(ByteBuf.class,
+        ReferenceCountUtil::safeRelease);
 
     if (fluxId.startsWith("push-")) {
       flux = flux.doFinally(_ -> this.activeFluxes.remove(fluxId));
@@ -64,7 +65,7 @@ public abstract class AbstractFluxManager implements FluxManager {
   @Override
   public void acknowledge(final String fluxId, final Acknowledgement ack) {
     this.validateFluxId(fluxId);
-    
+
     final FluxState state = this.activeFluxes.remove(fluxId);
     if (state != null) {
       state.ackSink.tryEmitValue(ack);
@@ -113,7 +114,7 @@ public abstract class AbstractFluxManager implements FluxManager {
 
   private void clearBrokenFluxes() {
     final long now = System.currentTimeMillis();
-    final long timeout = this.properties.getFluxTimeoutMillis();
+    final long timeout = this.properties.getTimeoutMillis();
     this.activeFluxes.forEach((fluxId, state) -> {
       if (now - state.creationTimestamp > timeout) {
         if (this.activeFluxes.remove(fluxId, state)) {

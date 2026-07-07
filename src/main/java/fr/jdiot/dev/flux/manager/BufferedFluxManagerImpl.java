@@ -1,6 +1,6 @@
-package fr.jdiot.dev.flux.core;
+package fr.jdiot.dev.flux.manager;
 
-import fr.jdiot.dev.flux.config.FluxProperties;
+import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
 import reactor.core.Disposable;
@@ -11,7 +11,7 @@ import reactor.util.concurrent.Queues;
 
 public class BufferedFluxManagerImpl extends AbstractFluxManager {
 
-  public BufferedFluxManagerImpl(final FluxProperties properties) {
+  public BufferedFluxManagerImpl(final FluxManagerProperties properties) {
     super(properties);
   }
 

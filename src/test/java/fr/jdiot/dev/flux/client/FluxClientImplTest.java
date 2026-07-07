@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
 import fr.jdiot.dev.flux.codec.PojoCodec;
-import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
 import io.netty.buffer.ByteBuf;
@@ -17,7 +16,6 @@ import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
-import reactor.netty.ByteBufFlux;
 import reactor.netty.DisposableServer;
 import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.server.HttpServer;
@@ -68,10 +66,8 @@ public class FluxClientImplTest {
             })))
         .bindNow();
 
-    final FluxProperties properties = new FluxProperties();
-
     FluxClientImplTest.fluxClient = new FluxClientImpl("http://localhost:" + FluxClientImplTest.mockServer.port(),
-        properties);
+        new FluxClientProperties());
   }
 
   @AfterAll
@@ -83,9 +79,14 @@ public class FluxClientImplTest {
 
   @Test
   public void testPull() {
-    final ByteBufFlux result = FluxClientImplTest.fluxClient.pull("test-pull");
+    final Flux<ByteBuf> result = FluxClientImplTest.fluxClient.pull("test-pull");
 
-    StepVerifier.create(result.asString().reduce("", String::concat)).expectNext("chunk1chunk2").verifyComplete();
+    StepVerifier.create(result.reduce(new StringBuilder(), (sb, b) -> {
+      final byte[] data = new byte[b.readableBytes()];
+      b.readBytes(data);
+
+      return sb.append(new String(data));
+    }).map(StringBuilder::toString)).expectNext("chunk1chunk2").verifyComplete();
 
     StepVerifier.create(FluxClientImplTest.serverAcks.asFlux().filter(a -> "test-pull".equals(a.getFluxId())))
         .expectNextMatches(ack -> Status.SUCCESS.equals(ack.getStatus())).thenCancel().verify(Duration.ofSeconds(2));

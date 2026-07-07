@@ -1,5 +1,9 @@
 package fr.jdiot.dev.flux;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -11,38 +15,44 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.client.FluxClientImpl;
-import fr.jdiot.dev.flux.config.FluxProperties;
+import fr.jdiot.dev.flux.client.FluxClientProperties;
+import fr.jdiot.dev.flux.codec.AvroPojoCodec;
+import fr.jdiot.dev.flux.codec.PojoCodec;
+import fr.jdiot.dev.flux.codec.SequentialFluxCodec;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
-import fr.jdiot.dev.flux.core.FluxManager;
-import fr.jdiot.dev.flux.core.FluxManagerFactory;
+import fr.jdiot.dev.flux.core.FluxFile;
+import fr.jdiot.dev.flux.manager.FluxManager;
+import fr.jdiot.dev.flux.manager.FluxManagerFactory;
+import fr.jdiot.dev.flux.manager.FluxManagerProperties;
 import fr.jdiot.dev.flux.server.FluxServerImpl;
+import fr.jdiot.dev.flux.server.FluxServerProperties;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.netty.ByteBufFlux;
 import reactor.netty.DisposableServer;
 import reactor.test.StepVerifier;
 
+@Slf4j
 public class FluxBridgeIT {
 
   private static FluxServerImpl server;
   private static FluxManager fluxManager;
   private static int port;
   private static DisposableServer disposableServer;
-  private static FluxProperties properties;
 
   @BeforeAll
   static void setUp() {
-    FluxBridgeIT.properties = new FluxProperties();
-    FluxBridgeIT.properties.setBackPressureSize(256);
+    final FluxManagerProperties properties = new FluxManagerProperties();
+    properties.setBackPressureSize(256);
 
     // Real FluxManager, no Mockito spy
-    FluxBridgeIT.fluxManager = FluxManagerFactory.create(FluxBridgeIT.properties);
+    FluxBridgeIT.fluxManager = FluxManagerFactory.create(properties);
 
-    FluxBridgeIT.server = new FluxServerImpl("127.0.0.1", 0, FluxBridgeIT.properties, FluxBridgeIT.fluxManager);
-    FluxBridgeIT.disposableServer = FluxBridgeIT.server.start().block();
+    FluxBridgeIT.server = new FluxServerImpl("127.0.0.1", 0, new FluxServerProperties(), FluxBridgeIT.fluxManager);
+    FluxBridgeIT.disposableServer = FluxBridgeIT.server.start();
     FluxBridgeIT.port = FluxBridgeIT.disposableServer.port();
   }
 
@@ -57,19 +67,25 @@ public class FluxBridgeIT {
   void testBridgeScenario5_3Bridge() throws InterruptedException {
     final String fluxId = "bridge-flux-it-789";
 
-    final FluxClientImpl client1 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port, FluxBridgeIT.properties);
-    final FluxClientImpl client2 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port, FluxBridgeIT.properties);
+    final FluxClientImpl client1 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port,
+        new FluxClientProperties());
+    final FluxClientImpl client2 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port,
+        new FluxClientProperties());
 
     // 1. APP_CLIENT1 asking APP_SERVER to get data flux.
     // 2. APP_SERVER keep open and save the connection with APP_CLIENT1, not respond
     // immediately.
-    final ByteBufFlux pullStream = client1.pull(fluxId);
+    final Flux<ByteBuf> pullStream = client1.pull(fluxId);
 
     final CountDownLatch latch = new CountDownLatch(1);
     final List<String> results = new ArrayList<>();
 
     // Subscribe to trigger the pull, but do not block here.
-    pullStream.asString().reduce("", String::concat).subscribe(data -> results.add(data), _ -> latch.countDown(),
+    pullStream.reduce(new StringBuilder(), (sb, b) -> {
+      final byte[] data = new byte[b.readableBytes()];
+      b.readBytes(data);
+      return sb.append(new String(data));
+    }).map(StringBuilder::toString).subscribe(data -> results.add(data), _ -> latch.countDown(),
         () -> latch.countDown());
 
     // Wait a bit to ensure the HTTP GET connection for the pull is fully
@@ -92,5 +108,76 @@ public class FluxBridgeIT {
     Assertions.assertTrue(latch.await(3, TimeUnit.SECONDS), "Client 1 pull did not complete in time");
     Assertions.assertEquals(1, results.size());
     Assertions.assertEquals("BridgeABridgeB", results.get(0));
+  }
+
+  @Test
+  void testBridgeScenario5_3BridgeWithFramedFileCodec() throws InterruptedException, IOException {
+    final String fluxId = "bridge-flux-dicom-it-001";
+
+    final FluxClientImpl client1 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port,
+        new FluxClientProperties());
+    final FluxClientImpl client2 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port,
+        new FluxClientProperties());
+
+    final PojoCodec<String> stringCodec = new AvroPojoCodec<>(String.class);
+    final SequentialFluxCodec<String> framedCodec = new SequentialFluxCodec<>(stringCodec);
+
+    // Prepare files to push
+    final Path dicomDir = Paths.get("src/test/resources/dicom");
+
+    // We read all files from the directory to test
+    final List<FluxFile<String>> filesToPush = new ArrayList<>();
+    Files.list(dicomDir).filter(Files::isRegularFile).forEach(path -> {
+      try {
+        final byte[] data = Files.readAllBytes(path);
+        filesToPush
+            .add(FluxFile.<String>builder().metadata(path.getFileName().toString()).dataLength(data.length)
+                .dataStream(Flux.range(0, (data.length + 65535) / 65536)
+                    .map(i -> Unpooled.wrappedBuffer(data, i * 65536, Math.min(65536, data.length - i * 65536))))
+                .build());
+      } catch (final IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
+
+    final Flux<ByteBuf> pullStream = client1.pull(fluxId);
+
+    final CountDownLatch latch = new CountDownLatch(1);
+    final List<FluxFile<String>> results = new ArrayList<>();
+
+    // Decode the pull stream
+    final Flux<FluxFile<String>> decodedStream = framedCodec.decode(pullStream);
+
+    decodedStream.concatMap(decodedFile -> decodedFile.getDataStream().reduce(0, (count, buf) -> {
+      count += buf.readableBytes();
+      buf.release();
+      return count;
+    }).map(count -> FluxFile.<String>builder().metadata(decodedFile.getMetadata()).dataLength(count)
+        .dataStream(Flux.empty()).build())).subscribe(results::add, _ -> {
+        }, () -> latch.countDown());
+
+    // Wait a bit to ensure the HTTP GET connection for the pull is fully
+    // established and waiting on the server.
+    Thread.sleep(500);
+
+    final Flux<ByteBuf> fluxToPush = framedCodec.encode(Flux.fromIterable(filesToPush));
+
+    final Mono<Acknowledgement> pushAck = client2.push(fluxId, fluxToPush);
+
+    StepVerifier.create(pushAck)
+        .expectNextMatches(ack -> Status.SUCCESS.equals(ack.getStatus()) && fluxId.equals(ack.getFluxId()))
+        .verifyComplete();
+
+    Assertions.assertTrue(latch.await(5, TimeUnit.SECONDS), "Client 1 pull did not complete in time");
+
+    Assertions.assertEquals(filesToPush.size(), results.size());
+    for (int i = 0; i < filesToPush.size(); i++) {
+      FluxBridgeIT.log.info("File {} sent metadata: {}, size: {}", i + 1, filesToPush.get(i).getMetadata(),
+          filesToPush.get(i).getDataLength());
+      FluxBridgeIT.log.info("File {} received metadata: {}, size: {}", i + 1, results.get(i).getMetadata(),
+          results.get(i).getDataLength());
+      Assertions.assertEquals(filesToPush.get(i).getMetadata(), results.get(i).getMetadata());
+      Assertions.assertEquals(filesToPush.get(i).getDataLength(), results.get(i).getDataLength());
+    }
   }
 }

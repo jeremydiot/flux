@@ -1,4 +1,4 @@
-package fr.jdiot.dev.flux.core;
+package fr.jdiot.dev.flux.manager;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import fr.jdiot.dev.flux.config.FluxProperties;
+import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
@@ -19,11 +19,11 @@ public abstract class AbstractFluxManagerTest {
 
   protected FluxManager fluxManager;
 
-  protected abstract FluxManager createFluxManager(FluxProperties properties);
+  protected abstract FluxManager createFluxManager(FluxManagerProperties properties);
 
   @BeforeEach
   public void setUp() {
-    this.fluxManager = this.createFluxManager(new FluxProperties());
+    this.fluxManager = this.createFluxManager(new FluxManagerProperties());
   }
 
   @Test
@@ -106,7 +106,7 @@ public abstract class AbstractFluxManagerTest {
 
     // Get flux before registering
     final Flux<ByteBuf> pulledStream = this.fluxManager.getFlux("push-1");
-    
+
     // Register the flux
     final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux("push-1", dataStream);
 
@@ -154,7 +154,7 @@ public abstract class AbstractFluxManagerTest {
 
     // Get flux before registering
     final Flux<ByteBuf> pulledStream = this.fluxManager.getFlux("pull-1");
-    
+
     // Register the flux
     final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux("pull-1", dataStream);
 
@@ -175,15 +175,17 @@ public abstract class AbstractFluxManagerTest {
   @Test
   public void testInvalidFluxId() {
     Assertions.assertThrows(IllegalArgumentException.class, () -> this.fluxManager.getFlux("invalid-1"));
-    Assertions.assertThrows(IllegalArgumentException.class, () -> this.fluxManager.registerFlux("invalid-2", Flux.empty()));
-    Assertions.assertThrows(IllegalArgumentException.class, () -> this.fluxManager.acknowledge("invalid-3", Acknowledgement.success("invalid-3")));
+    Assertions.assertThrows(IllegalArgumentException.class,
+        () -> this.fluxManager.registerFlux("invalid-2", Flux.empty()));
+    Assertions.assertThrows(IllegalArgumentException.class,
+        () -> this.fluxManager.acknowledge("invalid-3", Acknowledgement.success("invalid-3")));
   }
 
   @Test
   public void testRegisterFluxTimeout() {
-    final FluxProperties properties = new FluxProperties();
-    properties.setFluxTimeoutMillis(10);
-    properties.setFluxCleanupIntervalMillis(5);
+    final FluxManagerProperties properties = new FluxManagerProperties();
+    properties.setTimeoutMillis(10);
+    properties.setCleanupIntervalMillis(5);
 
     final FluxManager manager = this.createFluxManager(properties);
 
@@ -205,9 +207,9 @@ public abstract class AbstractFluxManagerTest {
 
   @Test
   public void testGetFluxTimeout() {
-    final FluxProperties properties = new FluxProperties();
-    properties.setFluxTimeoutMillis(10);
-    properties.setFluxCleanupIntervalMillis(5);
+    final FluxManagerProperties properties = new FluxManagerProperties();
+    properties.setTimeoutMillis(10);
+    properties.setCleanupIntervalMillis(5);
 
     final FluxManager manager = this.createFluxManager(properties);
 

@@ -11,20 +11,31 @@ import io.netty.buffer.PooledByteBufAllocator;
 import reactor.core.publisher.BaseSubscriber;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
+import reactor.core.publisher.Mono;
 import reactor.core.publisher.SignalType;
 import reactor.core.publisher.Sinks;
+import reactor.core.scheduler.Schedulers;
+import reactor.util.concurrent.Queues;
 
-public class FramedFileCodec<M> implements FluxCodec<FluxFile<M>> {
+public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
 
   private final PojoCodec<M> metadataCodec;
+  private final int maxConcurrency;
+  private final int prefetch;
 
-  public FramedFileCodec(final PojoCodec<M> metadataCodec) {
+  public SequentialFluxCodec(final PojoCodec<M> metadataCodec) {
+    this(metadataCodec, Queues.SMALL_BUFFER_SIZE, Queues.SMALL_BUFFER_SIZE);
+  }
+
+  public SequentialFluxCodec(final PojoCodec<M> metadataCodec, final int maxConcurrency, final int prefetch) {
     this.metadataCodec = metadataCodec;
+    this.maxConcurrency = maxConcurrency;
+    this.prefetch = prefetch;
   }
 
   @Override
   public Flux<ByteBuf> encode(final Flux<FluxFile<M>> flux) {
-    return flux.concatMap(file -> {
+    return flux.flatMapSequential(file -> Mono.fromCallable(() -> {
       final ByteBuf metadataBuf = this.metadataCodec.encode(file.getMetadata());
       final int metadataLength = metadataBuf.readableBytes();
       final ByteBuf header1 = PooledByteBufAllocator.DEFAULT.buffer(4);
@@ -38,16 +49,33 @@ public class FramedFileCodec<M> implements FluxCodec<FluxFile<M>> {
       final Flux<ByteBuf> dataStream = file.getDataStream();
 
       return Flux.concat(headers, dataStream);
-    });
+    }).subscribeOn(Schedulers.boundedElastic()).flatMapMany(f -> f), this.maxConcurrency, this.prefetch);
   }
 
   @Override
   public Flux<FluxFile<M>> decode(final Flux<ByteBuf> flux) {
-    return Flux.create(sink -> {
+    final Flux<RawFile> rawStream = Flux.create(sink -> {
       final FramedDecoderSubscriber subscriber = new FramedDecoderSubscriber(sink);
       sink.onDispose(subscriber::cancel);
       flux.subscribe(subscriber);
     }, FluxSink.OverflowStrategy.BUFFER);
+
+    return rawStream.flatMapSequential(raw -> Mono.fromCallable(() -> {
+      final M metadata = this.metadataCodec.decode(raw.metadataBytes);
+      return FluxFile.<M>builder().metadata(metadata).dataLength(raw.dataLength).dataStream(raw.dataStream).build();
+    }).subscribeOn(Schedulers.boundedElastic()), this.maxConcurrency, this.prefetch);
+  }
+
+  private static class RawFile {
+    final byte[] metadataBytes;
+    final long dataLength;
+    final Flux<ByteBuf> dataStream;
+
+    RawFile(final byte[] metadataBytes, final long dataLength, final Flux<ByteBuf> dataStream) {
+      this.metadataBytes = metadataBytes;
+      this.dataLength = dataLength;
+      this.dataStream = dataStream;
+    }
   }
 
   private enum Stage {
@@ -55,18 +83,18 @@ public class FramedFileCodec<M> implements FluxCodec<FluxFile<M>> {
   }
 
   private class FramedDecoderSubscriber extends BaseSubscriber<ByteBuf> {
-    private final FluxSink<FluxFile<M>> outerSink;
+    private final FluxSink<RawFile> outerSink;
     private final CompositeByteBuf buffer = PooledByteBufAllocator.DEFAULT.compositeBuffer();
 
     private Stage stage = Stage.READ_N_LENGTH;
     private int metadataLength = 0;
-    private M metadata = null;
+    private byte[] metadataBytes = null;
     private long dataLength = 0;
     private long dataRead = 0;
     private Sinks.Many<ByteBuf> dataSink = null;
     private final AtomicLong innerDemand = new AtomicLong(0);
 
-    public FramedDecoderSubscriber(final FluxSink<FluxFile<M>> outerSink) {
+    public FramedDecoderSubscriber(final FluxSink<RawFile> outerSink) {
       this.outerSink = outerSink;
     }
 
@@ -126,10 +154,8 @@ public class FramedFileCodec<M> implements FluxCodec<FluxFile<M>> {
             final ByteBuf metadataBuf = this.buffer.readRetainedSlice(this.metadataLength);
 
             try {
-              final byte[] metadataBytes = new byte[this.metadataLength];
-              metadataBuf.readBytes(metadataBytes);
-
-              this.metadata = FramedFileCodec.this.metadataCodec.decode(metadataBytes);
+              this.metadataBytes = new byte[this.metadataLength];
+              metadataBuf.readBytes(this.metadataBytes);
             } finally {
               metadataBuf.release();
             }
@@ -156,8 +182,7 @@ public class FramedFileCodec<M> implements FluxCodec<FluxFile<M>> {
               // Inner stream cancelled
             });
 
-            final FluxFile<M> file = FluxFile.<M>builder().metadata(this.metadata).dataLength(this.dataLength)
-                .dataStream(dataStream).build();
+            final RawFile file = new RawFile(this.metadataBytes, this.dataLength, dataStream);
 
             this.outerSink.next(file);
             this.buffer.discardReadComponents();
@@ -171,7 +196,8 @@ public class FramedFileCodec<M> implements FluxCodec<FluxFile<M>> {
           if (remainingData > 0) {
             final int toRead = (int) Math.min(this.buffer.readableBytes(), remainingData);
             if (toRead > 0) {
-              final ByteBuf dataChunk = this.buffer.readRetainedSlice(toRead);
+              final ByteBuf dataChunk = this.buffer.alloc().buffer(toRead);
+              this.buffer.readBytes(dataChunk);
               this.dataSink.tryEmitNext(dataChunk);
               this.dataRead += toRead;
               this.innerDemand.decrementAndGet();
@@ -181,7 +207,7 @@ public class FramedFileCodec<M> implements FluxCodec<FluxFile<M>> {
           if (this.dataRead == this.dataLength) {
             this.dataSink.tryEmitComplete();
             this.stage = Stage.READ_N_LENGTH;
-            this.metadata = null;
+            this.metadataBytes = null;
             this.metadataLength = 0;
             this.dataLength = 0;
             this.dataRead = 0;

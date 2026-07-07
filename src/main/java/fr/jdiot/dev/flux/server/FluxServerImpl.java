@@ -4,10 +4,10 @@ import org.reactivestreams.Publisher;
 
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
 import fr.jdiot.dev.flux.codec.PojoCodec;
-import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
-import fr.jdiot.dev.flux.core.FluxManager;
+import fr.jdiot.dev.flux.manager.FluxManager;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelOption;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
@@ -19,7 +19,7 @@ import reactor.netty.http.server.HttpServerRoutes;
 
 public class FluxServerImpl implements FluxServer {
 
-  private final FluxProperties properties;
+  private final FluxServerProperties properties;
   private final FluxManager fluxManager;
   private final PojoCodec<Acknowledgement> ackCodec = new AvroPojoCodec<>(Acknowledgement.class);
   private final String host;
@@ -27,7 +27,7 @@ public class FluxServerImpl implements FluxServer {
 
   private DisposableServer disposableServer;
 
-  public FluxServerImpl(final String host, final int port, final FluxProperties properties,
+  public FluxServerImpl(final String host, final int port, final FluxServerProperties properties,
       final FluxManager fluxManager) {
     this.host = host;
     this.port = port;
@@ -36,9 +36,16 @@ public class FluxServerImpl implements FluxServer {
   }
 
   @Override
-  public Mono<? extends DisposableServer> start() {
-    return HttpServer.create().protocol(HttpProtocol.H2C).host(this.host).port(this.port).route(this::configureRoutes)
-        .bind().doOnNext(server -> this.disposableServer = server);
+  public DisposableServer start() {
+    final HttpServer httpServer = HttpServer.create()
+        .option(ChannelOption.SO_BACKLOG, this.properties.getInnerConnectionQueueSize())
+        .childOption(ChannelOption.TCP_NODELAY, true).childOption(ChannelOption.SO_KEEPALIVE, true)
+        .protocol(HttpProtocol.H2C).host(this.host).port(this.port).route(this::configureRoutes);
+
+    httpServer.warmup().block();
+    this.disposableServer = httpServer.bindNow();
+
+    return this.disposableServer;
   }
 
   private void configureRoutes(final HttpServerRoutes routes) {

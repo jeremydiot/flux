@@ -15,10 +15,9 @@ import org.mockito.Mockito;
 
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
 import fr.jdiot.dev.flux.codec.PojoCodec;
-import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
-import fr.jdiot.dev.flux.core.FluxManager;
+import fr.jdiot.dev.flux.manager.FluxManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
@@ -40,10 +39,9 @@ public class FluxServerImplTest {
   public void setUp() {
     this.mockFluxManager = Mockito.mock(FluxManager.class);
     this.ackCodec = new AvroPojoCodec<>(Acknowledgement.class);
-    final FluxProperties properties = new FluxProperties();
 
-    this.server = new FluxServerImpl("localhost", 0, properties, this.mockFluxManager);
-    this.disposableServer = this.server.start().block(Duration.ofSeconds(5));
+    this.server = new FluxServerImpl("localhost", 0, new FluxServerProperties(), this.mockFluxManager);
+    this.disposableServer = this.server.start();
   }
 
   @AfterEach

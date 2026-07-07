@@ -13,12 +13,12 @@ import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
-class FramedFileCodecTest {
+class SequentialFluxCodecTest {
 
   @Test
   void testEncodeAndDecodeFlux() {
     final PojoCodec<String> stringCodec = new AvroPojoCodec<>(String.class);
-    final FramedFileCodec<String> framedCodec = new FramedFileCodec<>(stringCodec);
+    final SequentialFluxCodec<String> framedCodec = new SequentialFluxCodec<>(stringCodec);
 
     // Create a FluxFile
     final String metadata = "image_metadata";
@@ -75,7 +75,7 @@ class FramedFileCodecTest {
   @Test
   void testNetworkFragmentation() {
     final PojoCodec<String> stringCodec = new AvroPojoCodec<>(String.class);
-    final FramedFileCodec<String> framedCodec = new FramedFileCodec<>(stringCodec);
+    final SequentialFluxCodec<String> framedCodec = new SequentialFluxCodec<>(stringCodec);
 
     final String metadata = "fragmented_file";
     final byte[] fileData = new byte[100];
@@ -84,7 +84,8 @@ class FramedFileCodecTest {
 
     final FluxFile<String> file1 = FluxFile.<String>builder().metadata(metadata).dataLength(fileData.length)
         .dataStream(Flux.range(0, (fileData.length + 4) / 5)
-            .map(i -> Unpooled.wrappedBuffer(fileData, i * 5, Math.min(5, fileData.length - i * 5)))).build();
+            .map(i -> Unpooled.wrappedBuffer(fileData, i * 5, Math.min(5, fileData.length - i * 5))))
+        .build();
 
     final Flux<ByteBuf> encodedStream = framedCodec.encode(Flux.just(file1));
 
