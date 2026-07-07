@@ -13,8 +13,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
-import fr.jdiot.dev.flux.codec.FluxCodec;
-import fr.jdiot.dev.flux.codec.AvroFluxCodec;
+import fr.jdiot.dev.flux.codec.AckCodec;
+import fr.jdiot.dev.flux.codec.AvroAckCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
@@ -33,13 +33,13 @@ public class FluxServerImplTest {
 
   private FluxServerImpl server;
   private FluxManager mockFluxManager;
-  private FluxCodec<Acknowledgement> ackCodec;
+  private AckCodec ackCodec;
   private DisposableServer disposableServer;
 
   @BeforeEach
   public void setUp() {
     this.mockFluxManager = Mockito.mock(FluxManager.class);
-    this.ackCodec = new AvroFluxCodec<>(Acknowledgement.class);
+    this.ackCodec = new AvroAckCodec();
     final FluxProperties properties = new FluxProperties();
 
     this.server = new FluxServerImpl("localhost", 0, properties, this.mockFluxManager);
@@ -65,9 +65,9 @@ public class FluxServerImplTest {
     final HttpClient client = HttpClient.create().protocol(HttpProtocol.H2C)
         .baseUrl("http://localhost:" + this.disposableServer.port());
     final Flux<String> response = client.get().uri("/api/v1/flux/test-pull").responseConnection((res, connection) -> {
-        Assertions.assertEquals("chunked", res.responseHeaders().get("Transfer-Encoding"));
-        Assertions.assertEquals("application/octet-stream", res.responseHeaders().get("Content-Type"));
-        return connection.inbound().receive().map(buf -> buf.toString(StandardCharsets.UTF_8));
+      Assertions.assertEquals("chunked", res.responseHeaders().get("Transfer-Encoding"));
+      Assertions.assertEquals("application/octet-stream", res.responseHeaders().get("Content-Type"));
+      return connection.inbound().receive().map(buf -> buf.toString(StandardCharsets.UTF_8));
     });
 
     StepVerifier.create(response).expectNext("chunk1").expectNext("chunk2").verifyComplete();
@@ -104,8 +104,9 @@ public class FluxServerImplTest {
 
     final CompletableFuture<Acknowledgement> ackFuture = new CompletableFuture<>();
 
-    client.post().uri("/api/v1/flux/test-push").send(Flux.just(data1)).responseSingle((_, byteBufMono) -> byteBufMono)
-        .doOnNext(buf -> ackFuture.complete(this.ackCodec.decode(buf))).doOnError(ackFuture::completeExceptionally)
+    client.post().uri("/api/v1/flux/test-push").send(Flux.just(data1))
+        .responseSingle((_, byteBufMono) -> byteBufMono.asByteArray())
+        .doOnNext(bytes -> ackFuture.complete(this.ackCodec.decode(bytes))).doOnError(ackFuture::completeExceptionally)
         .subscribe();
 
     // Wait a bit to ensure registration happened

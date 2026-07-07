@@ -9,7 +9,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.client.FluxClientImpl;
-import fr.jdiot.dev.flux.codec.AvroFluxCodec;
+import fr.jdiot.dev.flux.codec.AvroAckCodec;
 import fr.jdiot.dev.flux.codec.ByteArrayFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
@@ -116,7 +116,7 @@ public class FluxPushIT {
         .route(routes -> routes.post("/api/v1/flux/" + fluxId, (req, res) -> {
           transferEncoding[0] = req.requestHeaders().get("Transfer-Encoding");
           contentType[0] = req.requestHeaders().get("Content-Type");
-          final AvroFluxCodec<Acknowledgement> ackCodec = new AvroFluxCodec<>(Acknowledgement.class);
+          final AvroAckCodec ackCodec = new AvroAckCodec();
           final Acknowledgement ack = Acknowledgement.success(fluxId);
           final ByteBuf buf = ackCodec.encode(ack);
           final byte[] bytes = new byte[buf.readableBytes()];

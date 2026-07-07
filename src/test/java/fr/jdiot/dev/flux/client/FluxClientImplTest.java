@@ -1,6 +1,5 @@
 package fr.jdiot.dev.flux.client;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 import org.junit.jupiter.api.AfterAll;
@@ -8,12 +7,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import fr.jdiot.dev.flux.codec.AckCodec;
+import fr.jdiot.dev.flux.codec.AvroAckCodec;
 import fr.jdiot.dev.flux.codec.AvroFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
@@ -26,7 +26,7 @@ public class FluxClientImplTest {
 
   private static DisposableServer mockServer;
   private static FluxClient<String> fluxClient;
-  private static final AvroFluxCodec<Acknowledgement> ackCodec = new AvroFluxCodec<>(Acknowledgement.class);
+  private static final AckCodec ackCodec = new AvroAckCodec();
   private static final AvroFluxCodec<String> dataCodec = new AvroFluxCodec<>(String.class);
   private static final Sinks.Many<Acknowledgement> serverAcks = Sinks.many().replay().all();
 
@@ -56,10 +56,10 @@ public class FluxClientImplTest {
                   return res.status(500).send().then();
                 }
               });
-            }).post("/api/v1/flux/{fluxId}/ack", (req, res) -> req.receive().aggregate().asString().flatMap(body -> {
+            })
+            .post("/api/v1/flux/{fluxId}/ack", (req, res) -> req.receive().aggregate().asByteArray().flatMap(bytes -> {
               try {
-                final ByteBuf buf = Unpooled.wrappedBuffer(body.getBytes(StandardCharsets.UTF_8));
-                final Acknowledgement ack = FluxClientImplTest.ackCodec.decode(buf);
+                final Acknowledgement ack = FluxClientImplTest.ackCodec.decode(bytes);
                 FluxClientImplTest.serverAcks.tryEmitNext(ack);
               } catch (final Exception e) {
                 // ignore

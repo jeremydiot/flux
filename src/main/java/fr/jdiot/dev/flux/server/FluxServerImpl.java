@@ -1,7 +1,9 @@
 package fr.jdiot.dev.flux.server;
 
-import fr.jdiot.dev.flux.codec.AvroFluxCodec;
-import fr.jdiot.dev.flux.codec.FluxCodec;
+import org.reactivestreams.Publisher;
+
+import fr.jdiot.dev.flux.codec.AckCodec;
+import fr.jdiot.dev.flux.codec.AvroAckCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.FluxManager;
@@ -19,7 +21,7 @@ public class FluxServerImpl implements FluxServer {
 
   private final FluxProperties properties;
   private final FluxManager fluxManager;
-  private final FluxCodec<Acknowledgement> ackCodec = new AvroFluxCodec<>(Acknowledgement.class);
+  private final AckCodec ackCodec = new AvroAckCodec();
   private final String host;
   private final int port;
 
@@ -45,8 +47,7 @@ public class FluxServerImpl implements FluxServer {
     routes.post("/api/v1/flux/{fluxId}/ack", this::handleAckRequest);
   }
 
-  private org.reactivestreams.Publisher<Void> handlePullRequest(final HttpServerRequest req,
-      final HttpServerResponse res) {
+  private Publisher<Void> handlePullRequest(final HttpServerRequest req, final HttpServerResponse res) {
     final String fluxId = req.param("fluxId");
 
     if (fluxId == null || fluxId.isEmpty()) {
@@ -63,8 +64,7 @@ public class FluxServerImpl implements FluxServer {
         .send(dataStream);
   }
 
-  private org.reactivestreams.Publisher<Void> handlePushRequest(final HttpServerRequest req,
-      final HttpServerResponse res) {
+  private Publisher<Void> handlePushRequest(final HttpServerRequest req, final HttpServerResponse res) {
 
     final String fluxId = req.param("fluxId");
 
@@ -78,8 +78,7 @@ public class FluxServerImpl implements FluxServer {
         .send(ackMono.map(ack -> this.ackCodec.encode(ack)));
   }
 
-  private org.reactivestreams.Publisher<Void> handleAckRequest(final HttpServerRequest req,
-      final reactor.netty.http.server.HttpServerResponse res) {
+  private Publisher<Void> handleAckRequest(final HttpServerRequest req, final HttpServerResponse res) {
     final String fluxId = req.param("fluxId");
     if (fluxId == null || fluxId.isEmpty()) {
       return res.status(400).sendString(Mono.just("Missing fluxId"));

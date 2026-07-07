@@ -2,7 +2,8 @@ package fr.jdiot.dev.flux.client;
 
 import java.time.Duration;
 
-import fr.jdiot.dev.flux.codec.AvroFluxCodec;
+import fr.jdiot.dev.flux.codec.AckCodec;
+import fr.jdiot.dev.flux.codec.AvroAckCodec;
 import fr.jdiot.dev.flux.codec.FluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
@@ -16,7 +17,7 @@ public class FluxClientImpl<T> implements FluxClient<T> {
 
   private final HttpClient httpClient;
   private final FluxCodec<T> dataCodec;
-  private final FluxCodec<Acknowledgement> ackCodec = new AvroFluxCodec<>(Acknowledgement.class);
+  private final AckCodec ackCodec = new AvroAckCodec();
 
   public FluxClientImpl(final String baseUrl, final FluxProperties properties, final FluxCodec<T> dataCodec) {
     this.dataCodec = dataCodec;
