@@ -3,10 +3,13 @@ package fr.jdiot.dev.flux.manager;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
+import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
+import reactor.core.publisher.Sinks.EmitResult;
 
+@Slf4j
 public class BufferedFluxManagerImpl extends AbstractFluxManager {
 
   public BufferedFluxManagerImpl(final FluxManagerProperties properties) {
@@ -31,7 +34,9 @@ public class BufferedFluxManagerImpl extends AbstractFluxManager {
 
         @Override
         protected void hookOnNext(final ByteBuf value) {
-          if (dataSink.tryEmitNext(value).isFailure()) {
+          final EmitResult result = dataSink.tryEmitNext(value);
+          if (result.isFailure()) {
+            BufferedFluxManagerImpl.log.error("EMIT FAILED: {}", result);
             ReferenceCountUtil.safeRelease(value);
           }
         }
