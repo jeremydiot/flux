@@ -2,8 +2,8 @@ package fr.jdiot.dev.flux.server;
 
 import org.reactivestreams.Publisher;
 
-import fr.jdiot.dev.flux.codec.AckCodec;
-import fr.jdiot.dev.flux.codec.AvroAckCodec;
+import fr.jdiot.dev.flux.codec.AvroPojoCodec;
+import fr.jdiot.dev.flux.codec.PojoCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.FluxManager;
@@ -21,7 +21,7 @@ public class FluxServerImpl implements FluxServer {
 
   private final FluxProperties properties;
   private final FluxManager fluxManager;
-  private final AckCodec ackCodec = new AvroAckCodec();
+  private final PojoCodec<Acknowledgement> ackCodec = new AvroPojoCodec<>(Acknowledgement.class);
   private final String host;
   private final int port;
 

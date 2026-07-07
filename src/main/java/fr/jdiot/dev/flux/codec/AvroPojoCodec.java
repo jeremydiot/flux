@@ -17,7 +17,6 @@ import org.apache.avro.specific.SpecificRecordBase;
 
 import fr.jdiot.dev.flux.exception.FluxException;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufInputStream;
 import io.netty.buffer.ByteBufOutputStream;
 import io.netty.buffer.PooledByteBufAllocator;
 
@@ -25,30 +24,30 @@ import io.netty.buffer.PooledByteBufAllocator;
  * Avro-based implementation of FluxCodec. Optimized for maximum speed and
  * minimal memory footprint using direct binary encoders/decoders.
  */
-public class AvroFluxCodec<T> implements FluxCodec<T> {
+public class AvroPojoCodec<P> implements PojoCodec<P> {
 
-  private final Class<T> type;
+  private final Class<P> type;
   private final Schema schema;
-  private final DatumWriter<T> writer;
-  private final DatumReader<T> reader;
+  private final DatumWriter<P> writer;
+  private final DatumReader<P> reader;
 
-  public AvroFluxCodec(final Class<T> type) {
+  public AvroPojoCodec(final Class<P> type) {
     this.type = type;
-    if (SpecificRecordBase.class.isAssignableFrom(type)) {
+    if (SpecificRecordBase.class.isAssignableFrom(this.type)) {
       // from .avsc file
-      this.schema = SpecificData.get().getSchema(type);
+      this.schema = SpecificData.get().getSchema(this.type);
       this.writer = new SpecificDatumWriter<>(this.schema);
       this.reader = new SpecificDatumReader<>(this.schema);
     } else {
       // from java pojo
-      this.schema = ReflectData.AllowNull.get().getSchema(type);
+      this.schema = ReflectData.AllowNull.get().getSchema(this.type);
       this.writer = new ReflectDatumWriter<>(this.schema);
       this.reader = new ReflectDatumReader<>(this.schema);
     }
   }
 
   @Override
-  public ByteBuf encode(final T object) {
+  public ByteBuf encode(final P object) {
     try {
       final ByteBuf buf = PooledByteBufAllocator.DEFAULT.buffer();
       try (ByteBufOutputStream out = new ByteBufOutputStream(buf)) {
@@ -66,17 +65,7 @@ public class AvroFluxCodec<T> implements FluxCodec<T> {
   }
 
   @Override
-  public T decode(final ByteBuf buffer) {
-    try (ByteBufInputStream in = new ByteBufInputStream(buffer)) {
-      final BinaryDecoder decoder = DecoderFactory.get().directBinaryDecoder(in, null);
-      return this.reader.read(null, decoder);
-    } catch (final Exception e) {
-      throw new FluxException("Failed to decode ByteBuf to " + this.type.getName(), e);
-    }
-  }
-
-  @Override
-  public T decode(final byte[] bytes) {
+  public P decode(final byte[] bytes) {
     try {
       final BinaryDecoder decoder = DecoderFactory.get().binaryDecoder(bytes, null);
       return this.reader.read(null, decoder);

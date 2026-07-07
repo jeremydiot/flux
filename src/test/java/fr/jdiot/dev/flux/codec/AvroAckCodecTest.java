@@ -11,7 +11,7 @@ class AvroAckCodecTest {
 
   @Test
   void shouldEncodeAndDecodeSuccessfully() {
-    final AvroAckCodec codec = new AvroAckCodec();
+    final PojoCodec<Acknowledgement> codec = new AvroPojoCodec<>(Acknowledgement.class);
     final Acknowledgement ack = Acknowledgement.builder().fluxId("flux-123").status(Acknowledgement.Status.SUCCESS)
         .receivedChunks(10).totalBytes(1024L).timestamp("2023-10-27T10:00:00Z").reason("All good").build();
 
@@ -35,7 +35,7 @@ class AvroAckCodecTest {
 
   @Test
   void shouldHandleNullValues() {
-    final AvroAckCodec codec = new AvroAckCodec();
+    final PojoCodec<Acknowledgement> codec = new AvroPojoCodec<>(Acknowledgement.class);
     final Acknowledgement ack = Acknowledgement.success("flux-456");
 
     final ByteBuf encoded = codec.encode(ack);
@@ -58,7 +58,7 @@ class AvroAckCodecTest {
 
   @Test
   void decodeShouldThrowFluxExceptionOnInvalidBytes() {
-    final AvroAckCodec codec = new AvroAckCodec();
+    final PojoCodec<Acknowledgement> codec = new AvroPojoCodec<>(Acknowledgement.class);
     final byte[] invalidBytes = new byte[] { 1, 2, 3, 4, 5 };
 
     Assertions.assertThrows(FluxException.class, () -> codec.decode(invalidBytes));

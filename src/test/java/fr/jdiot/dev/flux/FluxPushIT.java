@@ -9,8 +9,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.client.FluxClientImpl;
-import fr.jdiot.dev.flux.codec.AvroAckCodec;
-import fr.jdiot.dev.flux.codec.ByteArrayFluxCodec;
+import fr.jdiot.dev.flux.codec.AvroPojoCodec;
+import fr.jdiot.dev.flux.codec.PojoCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
@@ -18,6 +18,7 @@ import fr.jdiot.dev.flux.core.FluxManager;
 import fr.jdiot.dev.flux.core.FluxManagerFactory;
 import fr.jdiot.dev.flux.server.FluxServerImpl;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.util.ReferenceCountUtil;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -33,14 +34,11 @@ public class FluxPushIT {
   private static int port;
   private static DisposableServer disposableServer;
   private static FluxProperties properties;
-  private static ByteArrayFluxCodec dataCodec;
 
   @BeforeAll
   static void setUp() {
     FluxPushIT.properties = new FluxProperties();
     FluxPushIT.properties.setBackPressureSize(256);
-
-    FluxPushIT.dataCodec = new ByteArrayFluxCodec();
 
     // Real FluxManager, no Mockito spy
     FluxPushIT.fluxManager = FluxManagerFactory.create(FluxPushIT.properties);
@@ -60,18 +58,18 @@ public class FluxPushIT {
   @Test
   void testPushScenario5_2Push() throws InterruptedException {
     final String fluxId = "push-flux-it-456";
-    final Flux<byte[]> clientData = Flux.just("PushA", "PushB").map(String::getBytes);
 
-    final FluxClientImpl<byte[]> client = new FluxClientImpl<>("http://127.0.0.1:" + FluxPushIT.port,
-        FluxPushIT.properties, FluxPushIT.dataCodec);
+    final FluxClientImpl client = new FluxClientImpl("http://127.0.0.1:" + FluxPushIT.port, FluxPushIT.properties);
 
     // 1. APP_CLIENT1 send chunked data flux to APP_SERVER.
-    final Mono<Acknowledgement> ackMono = client.push(fluxId, clientData);
+    final Flux<ByteBuf> dataStream = Flux.just("PushA", "PushB").map(String::getBytes).map(Unpooled::wrappedBuffer);
+
+    final Mono<Acknowledgement> pushAck = client.push(fluxId, dataStream);
 
     // Start pushing asynchronously
     final CountDownLatch ackLatch = new CountDownLatch(1);
     final Acknowledgement[] resultAck = new Acknowledgement[1];
-    ackMono.subscribe(ack -> {
+    pushAck.subscribe(ack -> {
       resultAck[0] = ack;
       ackLatch.countDown();
     });
@@ -116,7 +114,7 @@ public class FluxPushIT {
         .route(routes -> routes.post("/api/v1/flux/" + fluxId, (req, res) -> {
           transferEncoding[0] = req.requestHeaders().get("Transfer-Encoding");
           contentType[0] = req.requestHeaders().get("Content-Type");
-          final AvroAckCodec ackCodec = new AvroAckCodec();
+          final PojoCodec<Acknowledgement> ackCodec = new AvroPojoCodec<>(Acknowledgement.class);
           final Acknowledgement ack = Acknowledgement.success(fluxId);
           final ByteBuf buf = ackCodec.encode(ack);
           final byte[] bytes = new byte[buf.readableBytes()];
@@ -126,10 +124,9 @@ public class FluxPushIT {
         })).bindNow();
 
     try {
-      final FluxClientImpl<byte[]> client = new FluxClientImpl<>("http://127.0.0.1:" + dummyServer.port(),
-          FluxPushIT.properties, FluxPushIT.dataCodec);
+      final FluxClientImpl client = new FluxClientImpl("http://127.0.0.1:" + dummyServer.port(), FluxPushIT.properties);
 
-      client.push(fluxId, Flux.just(new byte[] { 1, 2, 3 })).block();
+      client.push(fluxId, Flux.just(new byte[] { 1, 2, 3 }).map(Unpooled::wrappedBuffer)).block();
 
       Assertions.assertEquals("chunked", transferEncoding[0]);
       Assertions.assertEquals("application/octet-stream", contentType[0]);

@@ -1,5 +1,6 @@
 package fr.jdiot.dev.flux;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -9,7 +10,6 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.client.FluxClientImpl;
-import fr.jdiot.dev.flux.codec.ByteArrayFluxCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
@@ -20,6 +20,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.netty.ByteBufFlux;
 import reactor.netty.DisposableServer;
 import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.client.HttpClient;
@@ -32,14 +33,11 @@ public class FluxPullIT {
   private static int port;
   private static DisposableServer disposableServer;
   private static FluxProperties properties;
-  private static ByteArrayFluxCodec dataCodec;
 
   @BeforeAll
   static void setUp() {
     FluxPullIT.properties = new FluxProperties();
     FluxPullIT.properties.setBackPressureSize(256);
-
-    FluxPullIT.dataCodec = new ByteArrayFluxCodec();
 
     // Real FluxManager, no Mockito spy
     FluxPullIT.fluxManager = FluxManagerFactory.create(FluxPullIT.properties);
@@ -75,12 +73,16 @@ public class FluxPullIT {
     });
 
     // 3. APP_CLIENT1 asking APP_SERVER to get data flux
-    final FluxClientImpl<byte[]> client = new FluxClientImpl<>("http://127.0.0.1:" + FluxPullIT.port,
-        FluxPullIT.properties, FluxPullIT.dataCodec);
+    final FluxClientImpl client = new FluxClientImpl("http://127.0.0.1:" + FluxPullIT.port, FluxPullIT.properties);
 
-    // Client pulls and we verify that chunk data is correctly received
-    StepVerifier.create(client.pull(fluxId).map(String::new).reduce("", String::concat)).expectNext("ChunkAChunkB")
-        .verifyComplete();
+    // 1. APP_CLIENT1 asking APP_SERVER to get data flux.
+    // 2. APP_SERVER return flux to APP_CLIENT1 with all chunked data.
+    final ByteBufFlux resultFlux = client.pull(fluxId);
+
+    // We block to wait for the complete pull.
+    final List<String> results = resultFlux.asString().collectList().block();
+
+    Assertions.assertEquals("ChunkAChunkB", String.join("", results));
 
     // The client should send the acknowledgement after successfully pulling all
     // data.

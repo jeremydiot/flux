@@ -13,8 +13,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mockito;
 
-import fr.jdiot.dev.flux.codec.AckCodec;
-import fr.jdiot.dev.flux.codec.AvroAckCodec;
+import fr.jdiot.dev.flux.codec.AvroPojoCodec;
+import fr.jdiot.dev.flux.codec.PojoCodec;
 import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
@@ -33,13 +33,13 @@ public class FluxServerImplTest {
 
   private FluxServerImpl server;
   private FluxManager mockFluxManager;
-  private AckCodec ackCodec;
+  private PojoCodec<Acknowledgement> ackCodec;
   private DisposableServer disposableServer;
 
   @BeforeEach
   public void setUp() {
     this.mockFluxManager = Mockito.mock(FluxManager.class);
-    this.ackCodec = new AvroAckCodec();
+    this.ackCodec = new AvroPojoCodec<>(Acknowledgement.class);
     final FluxProperties properties = new FluxProperties();
 
     this.server = new FluxServerImpl("localhost", 0, properties, this.mockFluxManager);
