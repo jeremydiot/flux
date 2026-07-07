@@ -1,6 +1,5 @@
 package fr.jdiot.dev.flux.server;
 
-import reactor.core.publisher.Mono;
 import reactor.netty.DisposableServer;
 
 /**
@@ -11,7 +10,7 @@ public interface FluxServer {
   /**
    * Starts the FLUX HTTP server.
    */
-  Mono<? extends DisposableServer> start();
+  DisposableServer start();
 
   /**
    * Stops the FLUX HTTP server.

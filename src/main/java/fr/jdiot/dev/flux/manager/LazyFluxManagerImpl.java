@@ -1,13 +1,13 @@
-package fr.jdiot.dev.flux.core;
+package fr.jdiot.dev.flux.manager;
 
-import fr.jdiot.dev.flux.config.FluxProperties;
+import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 public class LazyFluxManagerImpl extends AbstractFluxManager {
 
-  public LazyFluxManagerImpl(final FluxProperties properties) {
+  public LazyFluxManagerImpl(final FluxManagerProperties properties) {
     super(properties);
   }
 

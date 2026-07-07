@@ -1,7 +1,8 @@
-package fr.jdiot.dev.flux.core;
+package fr.jdiot.dev.flux.manager;
 
 import java.util.Set;
 
+import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import reactor.core.publisher.Flux;
 

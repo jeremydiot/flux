@@ -1,10 +1,8 @@
-package fr.jdiot.dev.flux.core;
-
-import fr.jdiot.dev.flux.config.FluxProperties;
+package fr.jdiot.dev.flux.manager;
 
 public class FluxManagerFactory {
 
-  public static FluxManager create(final FluxProperties properties) {
+  public static FluxManager create(final FluxManagerProperties properties) {
     return switch (properties.getBackpressureStrategy()) {
     case IN_MEMORY_BUFFER -> new BufferedFluxManagerImpl(properties);
     case TCP_LAZY -> new LazyFluxManagerImpl(properties);

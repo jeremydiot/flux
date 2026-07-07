@@ -4,7 +4,6 @@ import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.netty.ByteBufFlux;
 
 /**
  * Client for pulling from and pushing to the FLUX server.
@@ -14,7 +13,7 @@ public interface FluxClient {
   /**
    * Pulls a data flux from the server.
    */
-  ByteBufFlux pull(String fluxId);
+  Flux<ByteBuf> pull(String fluxId);
 
   /**
    * Pushes a data flux to the server and returns the acknowledgement.

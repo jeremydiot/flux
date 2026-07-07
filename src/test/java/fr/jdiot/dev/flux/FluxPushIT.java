@@ -9,14 +9,16 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.client.FluxClientImpl;
+import fr.jdiot.dev.flux.client.FluxClientProperties;
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
 import fr.jdiot.dev.flux.codec.PojoCodec;
-import fr.jdiot.dev.flux.config.FluxProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
-import fr.jdiot.dev.flux.core.FluxManager;
-import fr.jdiot.dev.flux.core.FluxManagerFactory;
+import fr.jdiot.dev.flux.manager.FluxManager;
+import fr.jdiot.dev.flux.manager.FluxManagerFactory;
+import fr.jdiot.dev.flux.manager.FluxManagerProperties;
 import fr.jdiot.dev.flux.server.FluxServerImpl;
+import fr.jdiot.dev.flux.server.FluxServerProperties;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.util.ReferenceCountUtil;
@@ -33,18 +35,17 @@ public class FluxPushIT {
   private static FluxManager fluxManager;
   private static int port;
   private static DisposableServer disposableServer;
-  private static FluxProperties properties;
 
   @BeforeAll
   static void setUp() {
-    FluxPushIT.properties = new FluxProperties();
-    FluxPushIT.properties.setBackPressureSize(256);
+    final FluxManagerProperties properties = new FluxManagerProperties();
+    properties.setBackPressureSize(256);
 
     // Real FluxManager, no Mockito spy
-    FluxPushIT.fluxManager = FluxManagerFactory.create(FluxPushIT.properties);
+    FluxPushIT.fluxManager = FluxManagerFactory.create(properties);
 
-    FluxPushIT.server = new FluxServerImpl("127.0.0.1", 0, FluxPushIT.properties, FluxPushIT.fluxManager);
-    FluxPushIT.disposableServer = FluxPushIT.server.start().block();
+    FluxPushIT.server = new FluxServerImpl("127.0.0.1", 0, new FluxServerProperties(), FluxPushIT.fluxManager);
+    FluxPushIT.disposableServer = FluxPushIT.server.start();
     FluxPushIT.port = FluxPushIT.disposableServer.port();
   }
 
@@ -59,7 +60,7 @@ public class FluxPushIT {
   void testPushScenario5_2Push() throws InterruptedException {
     final String fluxId = "push-flux-it-456";
 
-    final FluxClientImpl client = new FluxClientImpl("http://127.0.0.1:" + FluxPushIT.port, FluxPushIT.properties);
+    final FluxClientImpl client = new FluxClientImpl("http://127.0.0.1:" + FluxPushIT.port, new FluxClientProperties());
 
     // 1. APP_CLIENT1 send chunked data flux to APP_SERVER.
     final Flux<ByteBuf> dataStream = Flux.just("PushA", "PushB").map(String::getBytes).map(Unpooled::wrappedBuffer);
@@ -124,7 +125,8 @@ public class FluxPushIT {
         })).bindNow();
 
     try {
-      final FluxClientImpl client = new FluxClientImpl("http://127.0.0.1:" + dummyServer.port(), FluxPushIT.properties);
+      final FluxClientImpl client = new FluxClientImpl("http://127.0.0.1:" + dummyServer.port(),
+          new FluxClientProperties());
 
       client.push(fluxId, Flux.just(new byte[] { 1, 2, 3 }).map(Unpooled::wrappedBuffer)).block();
 

@@ -1,6 +1,5 @@
 package fr.jdiot.dev.flux;
 
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -10,17 +9,18 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.client.FluxClientImpl;
-import fr.jdiot.dev.flux.config.FluxProperties;
+import fr.jdiot.dev.flux.client.FluxClientProperties;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import fr.jdiot.dev.flux.core.Acknowledgement.Status;
-import fr.jdiot.dev.flux.core.FluxManager;
-import fr.jdiot.dev.flux.core.FluxManagerFactory;
+import fr.jdiot.dev.flux.manager.FluxManager;
+import fr.jdiot.dev.flux.manager.FluxManagerFactory;
+import fr.jdiot.dev.flux.manager.FluxManagerProperties;
 import fr.jdiot.dev.flux.server.FluxServerImpl;
+import fr.jdiot.dev.flux.server.FluxServerProperties;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.netty.ByteBufFlux;
 import reactor.netty.DisposableServer;
 import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.client.HttpClient;
@@ -32,18 +32,17 @@ public class FluxPullIT {
   private static FluxManager fluxManager;
   private static int port;
   private static DisposableServer disposableServer;
-  private static FluxProperties properties;
 
   @BeforeAll
   static void setUp() {
-    FluxPullIT.properties = new FluxProperties();
-    FluxPullIT.properties.setBackPressureSize(256);
+    final FluxManagerProperties properties = new FluxManagerProperties();
+    properties.setBackPressureSize(256);
 
     // Real FluxManager, no Mockito spy
-    FluxPullIT.fluxManager = FluxManagerFactory.create(FluxPullIT.properties);
+    FluxPullIT.fluxManager = FluxManagerFactory.create(properties);
 
-    FluxPullIT.server = new FluxServerImpl("127.0.0.1", 0, FluxPullIT.properties, FluxPullIT.fluxManager);
-    FluxPullIT.disposableServer = FluxPullIT.server.start().block();
+    FluxPullIT.server = new FluxServerImpl("127.0.0.1", 0, new FluxServerProperties(), FluxPullIT.fluxManager);
+    FluxPullIT.disposableServer = FluxPullIT.server.start();
     FluxPullIT.port = FluxPullIT.disposableServer.port();
   }
 
@@ -73,16 +72,20 @@ public class FluxPullIT {
     });
 
     // 3. APP_CLIENT1 asking APP_SERVER to get data flux
-    final FluxClientImpl client = new FluxClientImpl("http://127.0.0.1:" + FluxPullIT.port, FluxPullIT.properties);
+    final FluxClientImpl client = new FluxClientImpl("http://127.0.0.1:" + FluxPullIT.port, new FluxClientProperties());
 
     // 1. APP_CLIENT1 asking APP_SERVER to get data flux.
     // 2. APP_SERVER return flux to APP_CLIENT1 with all chunked data.
-    final ByteBufFlux resultFlux = client.pull(fluxId);
+    final Flux<ByteBuf> resultFlux = client.pull(fluxId);
 
     // We block to wait for the complete pull.
-    final List<String> results = resultFlux.asString().collectList().block();
+    final String results = resultFlux.reduce(new StringBuilder(), (sb, b) -> {
+      final byte[] data = new byte[b.readableBytes()];
+      b.readBytes(data);
+      return sb.append(new String(data));
+    }).map(StringBuilder::toString).block();
 
-    Assertions.assertEquals("ChunkAChunkB", String.join("", results));
+    Assertions.assertEquals("ChunkAChunkB", results);
 
     // The client should send the acknowledgement after successfully pulling all
     // data.
