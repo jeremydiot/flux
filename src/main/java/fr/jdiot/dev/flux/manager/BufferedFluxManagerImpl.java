@@ -3,11 +3,9 @@ package fr.jdiot.dev.flux.manager;
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
-import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
-import reactor.util.concurrent.Queues;
 
 public class BufferedFluxManagerImpl extends AbstractFluxManager {
 
@@ -22,22 +20,36 @@ public class BufferedFluxManagerImpl extends AbstractFluxManager {
   public Mono<Acknowledgement> registerFlux(final String fluxId, final Flux<ByteBuf> dataStream) {
 
     return this.internalRegisterFlux(fluxId, () -> {
+      final int bufferSize = this.properties.getBackPressureSize();
+      final Sinks.Many<ByteBuf> dataSink = Sinks.many().unicast().onBackpressureBuffer();
 
-      final Sinks.Many<ByteBuf> dataSink = Sinks.many().unicast()
-          .onBackpressureBuffer(Queues.<ByteBuf>get(this.properties.getBackPressureSize()).get());
-
-      final Disposable subscription = dataStream.subscribe(buf -> {
-        final Sinks.EmitResult result = dataSink.tryEmitNext(buf);
-
-        if (result.isFailure()) {
-          ReferenceCountUtil.safeRelease(buf);
-          dataSink.tryEmitError(new IllegalStateException("Backpressure overflow"));
+      final reactor.core.publisher.BaseSubscriber<ByteBuf> subscriber = new reactor.core.publisher.BaseSubscriber<ByteBuf>() {
+        @Override
+        protected void hookOnSubscribe(final org.reactivestreams.Subscription subscription) {
+          this.request(bufferSize);
         }
-      }, err -> {
-        dataSink.tryEmitError(err != null ? err : new IllegalStateException("Unknown flux error"));
-      }, () -> dataSink.tryEmitComplete());
 
-      return dataSink.asFlux().doFinally(_ -> subscription.dispose());
+        @Override
+        protected void hookOnNext(final ByteBuf value) {
+          if (dataSink.tryEmitNext(value).isFailure()) {
+            ReferenceCountUtil.safeRelease(value);
+          }
+        }
+
+        @Override
+        protected void hookOnError(final Throwable throwable) {
+          dataSink.tryEmitError(throwable);
+        }
+
+        @Override
+        protected void hookOnComplete() {
+          dataSink.tryEmitComplete();
+        }
+      };
+
+      dataStream.subscribe(subscriber);
+
+      return dataSink.asFlux().doOnRequest(n -> subscriber.request(n)).doFinally(_ -> subscriber.cancel());
     });
 
   }

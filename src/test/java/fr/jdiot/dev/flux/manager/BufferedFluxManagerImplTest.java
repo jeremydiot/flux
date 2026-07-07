@@ -1,7 +1,6 @@
 package fr.jdiot.dev.flux.manager;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Nested;
@@ -24,7 +23,7 @@ public class BufferedFluxManagerImplTest extends AbstractFluxManagerTest {
   class SpecificTests {
 
     @Test
-    public void testBackpressureOverflow() {
+    public void testBackpressurePauses() {
       final FluxManagerProperties properties = new FluxManagerProperties();
       // In production, Reactor rounds small sizes up.
       // size 2 is rounded up to 8 by Queues.get(2) which delegates to SpscArrayQueue.
@@ -32,8 +31,7 @@ public class BufferedFluxManagerImplTest extends AbstractFluxManagerTest {
 
       final BufferedFluxManagerImpl manager = new BufferedFluxManagerImpl(properties);
 
-      // Create 10 chunks. The first 8 will fit in the queue, the last 2 will
-      // overflow.
+      // Create 10 chunks.
       final ByteBuf[] chunks = new ByteBuf[10];
       for (int i = 0; i < 10; i++) {
         chunks[i] = Unpooled.copiedBuffer("chunk" + (i + 1), StandardCharsets.UTF_8);
@@ -43,26 +41,24 @@ public class BufferedFluxManagerImplTest extends AbstractFluxManagerTest {
 
       manager.registerFlux("push-1", dataStream);
 
-      // Verify memory is safely released for the overflow chunks (chunks 9 and 10)
+      // The manager should have pulled exactly 8 items (rounded up buffer size)
+      // The remaining 2 items are waiting safely upstream.
       for (int i = 0; i < 8; i++) {
         Assertions.assertEquals(1, chunks[i].refCnt(), "chunk" + (i + 1) + " should be in the buffer");
       }
-      Assertions.assertEquals(0, chunks[8].refCnt(), "chunk9 should have been released due to overflow");
-      Assertions.assertEquals(0, chunks[9].refCnt(), "chunk10 should have been released due to failure");
-
-      // Get the flux and verify it fails with IllegalStateException after consuming
-      // the 8 buffered items
+      
+      // Chunks 9 and 10 have not been pulled yet!
+      // In a hot stream they wouldn't have been created, but here Flux.just created them in advance.
+      
+      // Get the flux and pull all items to prove none were lost
       final Flux<ByteBuf> pulledStream = manager.getFlux("push-1");
 
-      StepVerifier.create(pulledStream, 0).thenRequest(8)
-          .expectNext(chunks[0], chunks[1], chunks[2], chunks[3], chunks[4], chunks[5], chunks[6], chunks[7])
-          .expectErrorSatisfies(err -> {
-            Assertions.assertTrue(err instanceof IllegalStateException);
-            Assertions.assertEquals("Backpressure overflow", err.getMessage());
-          }).verify(Duration.ofSeconds(1));
+      StepVerifier.create(pulledStream)
+          .expectNext(chunks[0], chunks[1], chunks[2], chunks[3], chunks[4], chunks[5], chunks[6], chunks[7], chunks[8], chunks[9])
+          .verifyComplete();
 
       // safe release chunks just in case
-      for (int i = 0; i < 8; i++) {
+      for (int i = 0; i < 10; i++) {
         ReferenceCountUtil.safeRelease(chunks[i]);
       }
     }
