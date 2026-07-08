@@ -7,6 +7,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -43,6 +44,7 @@ public class FluxBridgeIT {
   private static FluxManager fluxManager;
   private static int port;
   private static DisposableServer disposableServer;
+  private static final List<Acknowledgement> interceptedAcks = new CopyOnWriteArrayList<>();
 
   @BeforeAll
   static void setUp() {
@@ -53,6 +55,7 @@ public class FluxBridgeIT {
     FluxBridgeIT.fluxManager = FluxManagerFactory.create(properties);
 
     FluxBridgeIT.server = new FluxServerImpl("127.0.0.1", 0, new FluxServerProperties(), FluxBridgeIT.fluxManager);
+    FluxBridgeIT.fluxManager.setAckHandler(FluxBridgeIT.interceptedAcks::add);
     FluxBridgeIT.disposableServer = FluxBridgeIT.server.start();
     FluxBridgeIT.port = FluxBridgeIT.disposableServer.port();
   }
@@ -184,5 +187,11 @@ public class FluxBridgeIT {
       Assertions.assertEquals(filesToPush.get(i).getMetadata(), results.get(i).getMetadata());
       Assertions.assertEquals(filesToPush.get(i).getDataLength(), results.get(i).getDataLength());
     }
+
+    // Verify that the server intercepted the success ack
+    Assertions.assertTrue(
+        FluxBridgeIT.interceptedAcks.stream()
+            .anyMatch(ack -> fluxId.equals(ack.getFluxId()) && Status.SUCCESS.equals(ack.getStatus())),
+        "Server should have intercepted the SUCCESS ack");
   }
 }

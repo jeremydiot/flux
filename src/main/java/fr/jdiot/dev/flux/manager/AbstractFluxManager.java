@@ -5,22 +5,26 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
+import lombok.extern.slf4j.Slf4j;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
+@Slf4j
 public abstract class AbstractFluxManager implements FluxManager {
 
   protected final FluxManagerProperties properties;
 
   private final Map<String, FluxState> activeFluxes = new ConcurrentHashMap<>();
   private final Disposable cleanupTask;
+  private Consumer<Acknowledgement> ackHandler;
 
   private static class FluxState {
     final Sinks.One<Flux<ByteBuf>> streamSink = Sinks.one();
@@ -39,6 +43,21 @@ public abstract class AbstractFluxManager implements FluxManager {
         || (!fluxId.startsWith("bridge-") && !fluxId.startsWith("push-") && !fluxId.startsWith("pull-"))) {
       throw new IllegalArgumentException("Invalid fluxId: must start with bridge-, push-, or pull-");
     }
+  }
+
+  @Override
+  public void setAckHandler(final Consumer<Acknowledgement> ackHandler) {
+    this.ackHandler = ackHandler;
+  }
+
+  protected void emitAck(final FluxState state, final Acknowledgement ack) {
+    if (this.ackHandler != null) {
+      Mono.fromRunnable(() -> this.ackHandler.accept(ack))
+          .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+          .doOnError(e -> AbstractFluxManager.log.error("Error in ack handler", e))
+          .subscribe();
+    }
+    state.ackSink.tryEmitValue(ack);
   }
 
   /**
@@ -68,7 +87,7 @@ public abstract class AbstractFluxManager implements FluxManager {
 
     final FluxState state = this.activeFluxes.remove(fluxId);
     if (state != null) {
-      state.ackSink.tryEmitValue(ack);
+      this.emitAck(state, ack);
     }
   }
 
@@ -82,7 +101,7 @@ public abstract class AbstractFluxManager implements FluxManager {
 
     this.activeFluxes.forEach((fluxId, state) -> {
       state.streamSink.tryEmitValue(Flux.error(new InterruptedException("Flux manager stopped")));
-      state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId, "Flux manager stopped"));
+      this.emitAck(state, Acknowledgement.failed(fluxId, "Flux manager stopped"));
     });
     this.activeFluxes.clear();
   }
@@ -93,15 +112,15 @@ public abstract class AbstractFluxManager implements FluxManager {
 
     final Flux<ByteBuf> hookedFLux = processor.get().doOnCancel(() -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
-        state.ackSink.tryEmitValue(Acknowledgement.partial(fluxId));
+        this.emitAck(state, Acknowledgement.partial(fluxId));
       }
     }).doOnError(_ -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
-        state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId));
+        this.emitAck(state, Acknowledgement.failed(fluxId));
       }
     }).doOnComplete(() -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
-        state.ackSink.tryEmitValue(Acknowledgement.success(fluxId));
+        this.emitAck(state, Acknowledgement.success(fluxId));
       }
     });
 
@@ -119,7 +138,7 @@ public abstract class AbstractFluxManager implements FluxManager {
       if (now - state.creationTimestamp > timeout) {
         if (this.activeFluxes.remove(fluxId, state)) {
           state.streamSink.tryEmitValue(Flux.error(new TimeoutException("Flux timed out")));
-          state.ackSink.tryEmitValue(Acknowledgement.failed(fluxId, "Flux timed out"));
+          this.emitAck(state, Acknowledgement.failed(fluxId, "Flux timed out"));
         }
       }
     });
