@@ -1,6 +1,7 @@
 package fr.jdiot.dev.flux.manager;
 
 import java.util.Set;
+import java.util.function.Consumer;
 
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
@@ -31,4 +32,9 @@ public interface FluxManager {
    * Returns the set of active flux IDs.
    */
   Set<String> getActiveFluxIds();
+
+  /**
+   * Sets a handler to be called when an acknowledgement is emitted.
+   */
+  void setAckHandler(Consumer<Acknowledgement> ackHandler);
 }
