@@ -1,5 +1,7 @@
 package fr.jdiot.dev.flux.server;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 import org.reactivestreams.Publisher;
 
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
@@ -39,6 +41,10 @@ public class FluxServerImpl implements FluxServer {
   public DisposableServer start() {
     final HttpServer httpServer = HttpServer.create()
         .option(ChannelOption.SO_BACKLOG, this.properties.getInnerConnectionQueueSize())
+        // .option(ChannelOption.SO_SNDBUF, 1024 * 1024) // doit être plus grand qu'un
+        // chunk
+        // .option(ChannelOption.SO_RCVBUF, 1024 * 1024) // doit être plus grand qu'un
+        // chunk
         .childOption(ChannelOption.TCP_NODELAY, true).childOption(ChannelOption.SO_KEEPALIVE, true)
         .protocol(HttpProtocol.H2C).host(this.host).port(this.port).route(this::configureRoutes);
 
@@ -67,11 +73,11 @@ public class FluxServerImpl implements FluxServer {
       return res.status(404).sendString(Mono.just("Flux not found"));
     }
 
-    return res.header("Transfer-Encoding", "chunked").header("Content-Type", "application/octet-stream")
-        .send(dataStream);
+    return res.header("Content-Type", "application/octet-stream").send(dataStream);
   }
 
   private Publisher<Void> handlePushRequest(final HttpServerRequest req, final HttpServerResponse res) {
+    final long t0 = System.nanoTime();
 
     final String fluxId = req.param("fluxId");
 
@@ -79,10 +85,23 @@ public class FluxServerImpl implements FluxServer {
       return res.status(400).sendString(Mono.just("Missing fluxId"));
     }
 
-    final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux(fluxId, req.receive().map(ByteBuf::retain));
+    final AtomicLong t1 = new AtomicLong();
+    final AtomicLong t2 = new AtomicLong();
 
-    return res.header("Transfer-Encoding", "chunked").header("Content-Type", "application/octet-stream")
-        .send(ackMono.map(ack -> this.ackCodec.encode(ack)));
+    final Flux<ByteBuf> receiveStream = req.receive().doOnSubscribe(_ -> t1.set(System.nanoTime()))
+        .map(ByteBuf::retain);
+
+    final Mono<Acknowledgement> ackMono = this.fluxManager.registerFlux(fluxId, receiveStream).map(ack -> {
+      t2.set(System.nanoTime());
+      ack.setServerPreProcessingTimeMs((t1.get() - t0) / 1_000_000);
+      ack.setServerProcessingTimeMs((t2.get() - t1.get()) / 1_000_000);
+      return ack;
+    });
+
+    return res.header("Content-Type", "application/octet-stream").send(ackMono.map(ack -> {
+      ack.setServerPostProcessingTimeMs((System.nanoTime() - t2.get()) / 1_000_000);
+      return this.ackCodec.encode(ack);
+    }));
   }
 
   private Publisher<Void> handleAckRequest(final HttpServerRequest req, final HttpServerResponse res) {

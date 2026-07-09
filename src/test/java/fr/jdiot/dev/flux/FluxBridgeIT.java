@@ -27,6 +27,7 @@ import fr.jdiot.dev.flux.core.FluxFile;
 import fr.jdiot.dev.flux.manager.FluxManager;
 import fr.jdiot.dev.flux.manager.FluxManagerFactory;
 import fr.jdiot.dev.flux.manager.FluxManagerProperties;
+import fr.jdiot.dev.flux.manager.FluxManagerProperties.BackpressureStrategy;
 import fr.jdiot.dev.flux.server.FluxServerImpl;
 import fr.jdiot.dev.flux.server.FluxServerProperties;
 import io.netty.buffer.ByteBuf;
@@ -50,6 +51,7 @@ public class FluxBridgeIT {
   static void setUp() {
     final FluxManagerProperties properties = new FluxManagerProperties();
     properties.setBackPressureSize(256);
+    properties.setBackpressureStrategy(BackpressureStrategy.TCP_LAZY);
 
     // Real FluxManager, no Mockito spy
     FluxBridgeIT.fluxManager = FluxManagerFactory.create(properties);
@@ -162,11 +164,14 @@ public class FluxBridgeIT {
 
     // Wait a bit to ensure the HTTP GET connection for the pull is fully
     // established and waiting on the server.
-    Thread.sleep(500);
+    // Thread.sleep(500);
 
     final Flux<ByteBuf> fluxToPush = framedCodec.encode(Flux.fromStream(filesToPush.stream().parallel()));
 
-    final Mono<Acknowledgement> pushAck = client2.push(fluxId, fluxToPush);
+    final long startTime = System.currentTimeMillis();
+
+    final Mono<Acknowledgement> pushAck = client2.push(fluxId, fluxToPush)
+        .doOnNext(ack -> FluxBridgeIT.log.info("\n{}", ack.printProcessingTimes()));
 
     StepVerifier.create(pushAck)
         .expectNextMatches(ack -> Status.SUCCESS.equals(ack.getStatus()) && fluxId.equals(ack.getFluxId()))
@@ -174,15 +179,17 @@ public class FluxBridgeIT {
 
     Assertions.assertTrue(latch.await(5, TimeUnit.SECONDS), "Client 1 pull did not complete in time");
 
+    FluxBridgeIT.log.info("Total end-to-end bridge transfer time: {} ms", System.currentTimeMillis() - startTime);
+
     Assertions.assertEquals(filesToPush.size(), results.size());
 
     filesToPush.sort(Comparator.comparing(FluxFile::getMetadata));
     results.sort(Comparator.comparing(FluxFile::getMetadata));
 
     for (int i = 0; i < filesToPush.size(); i++) {
-      FluxBridgeIT.log.info("File {} sent metadata: {}, size: {}", i + 1, filesToPush.get(i).getMetadata(),
+      FluxBridgeIT.log.debug("File {} sent metadata: {}, size: {}", i + 1, filesToPush.get(i).getMetadata(),
           filesToPush.get(i).getDataLength());
-      FluxBridgeIT.log.info("File {} received metadata: {}, size: {}", i + 1, results.get(i).getMetadata(),
+      FluxBridgeIT.log.debug("File {} received metadata: {}, size: {}", i + 1, results.get(i).getMetadata(),
           results.get(i).getDataLength());
       Assertions.assertEquals(filesToPush.get(i).getMetadata(), results.get(i).getMetadata());
       Assertions.assertEquals(filesToPush.get(i).getDataLength(), results.get(i).getDataLength());
