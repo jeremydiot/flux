@@ -6,6 +6,6 @@ import lombok.Getter;
 public class FluxClientProperties {
   private final int poolMaxConnections = 100;
   private final int poolPendingAcquireMaxCount = -1;
-  private final int responseTimeoutMillis = 1000;
+  private final int responseTimeoutMillis = 10_000;
 
 }

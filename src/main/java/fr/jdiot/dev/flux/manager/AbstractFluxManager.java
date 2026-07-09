@@ -54,8 +54,7 @@ public abstract class AbstractFluxManager implements FluxManager {
     if (this.ackHandler != null) {
       Mono.fromRunnable(() -> this.ackHandler.accept(ack))
           .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
-          .doOnError(e -> AbstractFluxManager.log.error("Error in ack handler", e))
-          .subscribe();
+          .doOnError(e -> AbstractFluxManager.log.error("Error in ack handler", e)).subscribe();
     }
     state.ackSink.tryEmitValue(ack);
   }
