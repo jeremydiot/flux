@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -94,9 +95,7 @@ public class FluxBridgeIT {
     }).map(StringBuilder::toString).subscribe(data -> results.add(data), _ -> latch.countDown(),
         () -> latch.countDown());
 
-    // Wait a bit to ensure the HTTP GET connection for the pull is fully
-    // established and waiting on the server.
-    Thread.sleep(500);
+
 
     // 3. APP_CLIENT2 send chunked data flux to APP_SERVER.
     final Flux<ByteBuf> fluxToPush = Flux.just("BridgeA", "BridgeB").map(String::getBytes).map(Unpooled::wrappedBuffer);
@@ -132,7 +131,7 @@ public class FluxBridgeIT {
     final Path dicomDir = Paths.get("src/test/resources/dicom");
 
     // We read all files from the directory to test
-    final List<FluxFile<String>> filesToPush = new ArrayList<>();
+    final List<FluxFile<String>> filesToPush = Collections.synchronizedList(new ArrayList<>());
     Files.list(dicomDir).filter(Files::isRegularFile).parallel().forEach(path -> {
       try {
         final byte[] data = Files.readAllBytes(path);
@@ -162,11 +161,9 @@ public class FluxBridgeIT {
         .dataStream(Flux.empty()).build())).subscribe(results::add, _ -> {
         }, () -> latch.countDown());
 
-    // Wait a bit to ensure the HTTP GET connection for the pull is fully
-    // established and waiting on the server.
-    // Thread.sleep(500);
 
-    final Flux<ByteBuf> fluxToPush = framedCodec.encode(Flux.fromStream(filesToPush.stream().parallel()));
+
+    final Flux<ByteBuf> fluxToPush = framedCodec.encode(Flux.fromStream(filesToPush.stream()));
 
     final long startTime = System.currentTimeMillis();
 

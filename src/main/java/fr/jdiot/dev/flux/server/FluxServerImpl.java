@@ -41,10 +41,8 @@ public class FluxServerImpl implements FluxServer {
   public DisposableServer start() {
     final HttpServer httpServer = HttpServer.create()
         .option(ChannelOption.SO_BACKLOG, this.properties.getInnerConnectionQueueSize())
-        // .option(ChannelOption.SO_SNDBUF, 1024 * 1024) // doit être plus grand qu'un
-        // chunk
-        // .option(ChannelOption.SO_RCVBUF, 1024 * 1024) // doit être plus grand qu'un
-        // chunk
+        // .option(ChannelOption.SO_SNDBUF, 1024 * 1024) // doit être plus grand qu'un chunk
+        // .option(ChannelOption.SO_RCVBUF, 1024 * 1024) // doit être plus grand qu'un chunk
         .childOption(ChannelOption.TCP_NODELAY, true).childOption(ChannelOption.SO_KEEPALIVE, true)
         .protocol(HttpProtocol.H2C).host(this.host).port(this.port).route(this::configureRoutes);
 
