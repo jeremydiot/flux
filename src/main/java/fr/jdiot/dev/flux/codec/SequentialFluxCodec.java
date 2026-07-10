@@ -38,23 +38,21 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
     return flux.flatMapSequential(file -> Mono.fromCallable(() -> {
       final ByteBuf metadataBuf = this.metadataCodec.encode(file.getMetadata());
       final int metadataLength = metadataBuf.readableBytes();
-      final ByteBuf header1 = PooledByteBufAllocator.DEFAULT.buffer(4);
-      header1.writeInt(metadataLength);
-
-      final ByteBuf header2 = PooledByteBufAllocator.DEFAULT.buffer(4);
 
       // The protocol uses 4 bytes for data length (M)
       // Validate file size, for prevent signed integer overflow. limit is ~4.29 Go
       if (file.getDataLength() < 0 || file.getDataLength() > 4294967295L) {
         throw new IllegalArgumentException("File size exceeds protocol limit of 4GB");
       }
-      header2.writeInt((int) file.getDataLength());
 
-      final Flux<ByteBuf> headers = Flux.just(header1, metadataBuf, header2);
-      final Flux<ByteBuf> dataStream = file.getDataStream();
+      final ByteBuf header = PooledByteBufAllocator.DEFAULT.buffer(8 + metadataLength);
+      header.writeInt(metadataLength);
+      header.writeBytes(metadataBuf);
+      header.writeInt((int) file.getDataLength());
+      metadataBuf.release();
 
-      return Flux.concat(headers, dataStream);
-    }).subscribeOn(Schedulers.boundedElastic()).flatMapMany(f -> f), this.maxConcurrency, this.prefetch);
+      return Flux.concat(Flux.just(header), file.getDataStream());
+    }).subscribeOn(Schedulers.parallel()).flatMapMany(f -> f), this.maxConcurrency, this.prefetch);
   }
 
   @Override
@@ -68,7 +66,7 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
     return rawStream.flatMapSequential(raw -> Mono.fromCallable(() -> {
       final M metadata = this.metadataCodec.decode(raw.metadataBytes);
       return FluxFile.<M>builder().metadata(metadata).dataLength(raw.dataLength).dataStream(raw.dataStream).build();
-    }).subscribeOn(Schedulers.boundedElastic()), this.maxConcurrency, this.prefetch);
+    }).subscribeOn(Schedulers.parallel()), this.maxConcurrency, this.prefetch);
   }
 
   private static class RawFile {
@@ -184,8 +182,9 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
               this.innerDemand.addAndGet(n);
               this.request(1);
             }).doOnCancel(() -> {
-              // If the consumer cancels the file download midway, we MUST drain the rest 
-              // of the bytes from the network socket to avoid corrupting the stream for the next file.
+              // If the consumer cancels the file download midway, we MUST drain the rest
+              // of the bytes from the network socket to avoid corrupting the stream for the
+              // next file.
               this.innerDemand.set(Long.MAX_VALUE); // Fake infinite demand to drain
               this.request(1); // Wake up Netty
             });
@@ -207,7 +206,8 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
               final ByteBuf dataChunk = this.buffer.alloc().buffer(toRead);
               this.buffer.readBytes(dataChunk);
               if (this.dataSink.tryEmitNext(dataChunk).isFailure()) {
-                // If the sink is cancelled or overflows, we must release the chunk to prevent memory leaks
+                // If the sink is cancelled or overflows, we must release the chunk to prevent
+                // memory leaks
                 dataChunk.release();
               }
               this.dataRead += toRead;

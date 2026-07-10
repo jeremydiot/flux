@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -16,6 +17,7 @@ import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
+import reactor.core.scheduler.Schedulers;
 
 @Slf4j
 public abstract class AbstractFluxManager implements FluxManager {
@@ -29,7 +31,8 @@ public abstract class AbstractFluxManager implements FluxManager {
   private static class FluxState {
     final Sinks.One<Flux<ByteBuf>> streamSink = Sinks.one();
     final Sinks.One<Acknowledgement> ackSink = Sinks.one();
-    final long creationTimestamp = System.currentTimeMillis();
+    final AtomicLong lastActivityTimestamp = new AtomicLong(System.currentTimeMillis());
+    volatile boolean isSubscribed = false;
   }
 
   protected AbstractFluxManager(final FluxManagerProperties properties) {
@@ -51,12 +54,12 @@ public abstract class AbstractFluxManager implements FluxManager {
   }
 
   protected void emitAck(final FluxState state, final Acknowledgement ack) {
-    if (this.ackHandler != null) {
-      Mono.fromRunnable(() -> this.ackHandler.accept(ack))
-          .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
-          .doOnError(e -> AbstractFluxManager.log.error("Error in ack handler", e)).subscribe();
+    if (state.ackSink.tryEmitValue(ack) == Sinks.EmitResult.OK) {
+      if (this.ackHandler != null) {
+        Mono.fromRunnable(() -> this.ackHandler.accept(ack)).subscribeOn(Schedulers.boundedElastic())
+            .doOnError(e -> AbstractFluxManager.log.error("Error in ack handler", e)).subscribe();
+      }
     }
-    state.ackSink.tryEmitValue(ack);
   }
 
   /**
@@ -67,7 +70,10 @@ public abstract class AbstractFluxManager implements FluxManager {
     this.validateFluxId(fluxId);
 
     final FluxState state = this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState());
-    Flux<ByteBuf> flux = state.streamSink.asMono().flatMapMany(f -> f).doOnDiscard(ByteBuf.class,
+    Flux<ByteBuf> flux = state.streamSink.asMono().flatMapMany(f -> f).doOnSubscribe(_ -> {
+      state.isSubscribed = true;
+      state.lastActivityTimestamp.set(System.currentTimeMillis());
+    }).doOnNext(_ -> state.lastActivityTimestamp.set(System.currentTimeMillis())).doOnDiscard(ByteBuf.class,
         ReferenceCountUtil::safeRelease);
 
     if (fluxId.startsWith("push-")) {
@@ -134,10 +140,16 @@ public abstract class AbstractFluxManager implements FluxManager {
     final long now = System.currentTimeMillis();
     final long timeout = this.properties.getTimeoutMillis();
     this.activeFluxes.forEach((fluxId, state) -> {
-      if (now - state.creationTimestamp > timeout) {
+      if (now - state.lastActivityTimestamp.get() > timeout) {
         if (this.activeFluxes.remove(fluxId, state)) {
-          state.streamSink.tryEmitValue(Flux.error(new TimeoutException("Flux timed out")));
+          state.streamSink.tryEmitError(new TimeoutException("Flux timed out"));
           this.emitAck(state, Acknowledgement.failed(fluxId, "Flux timed out"));
+          if (!state.isSubscribed) {
+            state.streamSink.asMono().subscribe(flux -> flux.doOnDiscard(ByteBuf.class, ReferenceCountUtil::safeRelease)
+                .subscribe(ReferenceCountUtil::safeRelease, _ -> {
+                }, () -> {
+                }).dispose());
+          }
         }
       }
     });
