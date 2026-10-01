@@ -1,0 +1,84 @@
+{
+  "type": "record",
+  "name": "Acknowledgement",
+  "namespace": "fr.jdiot.dev.flux.core.ack",
+  "fields": [
+    {
+      "name": "fluxId",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
+      "name": "status",
+      "type": [
+        "null",
+        {
+          "type": "enum",
+          "name": "Status",
+          "symbols": ["SUCCESS", "FAILED", "PARTIAL"]
+        }
+      ],
+      "default": null
+    },
+    {
+      "name": "nbElement",
+      "type": "int",
+      "default": 0
+    },
+    {
+      "name": "totalBytes",
+      "type": "long",
+      "default": 0
+    },
+    {
+      "name": "serverPreProcessingTimeMs",
+      "type": "long",
+      "default": 0
+    },
+    {
+      "name": "serverProcessingTimeMs",
+      "type": "long",
+      "default": 0
+    },
+    {
+      "name": "serverPostProcessingTimeMs",
+      "type": "long",
+      "default": 0
+    },
+    {
+      "name": "pullClientPreProcessingTimeMs",
+      "type": "long",
+      "default": 0
+    },
+    {
+      "name": "pullClientProcessingTimeMs",
+      "type": "long",
+      "default": 0
+    },
+    {
+      "name": "pullClientPostProcessingTimeMs",
+      "type": "long",
+      "default": 0
+    },
+    {
+      "name": "pushClientPreProcessingTimeMs",
+      "type": "long",
+      "default": 0
+    },
+    {
+      "name": "pushClientProcessingTimeMs",
+      "type": "long",
+      "default": 0
+    },
+    {
+      "name": "pushClientPostProcessingTimeMs",
+      "type": "long",
+      "default": 0
+    },
+    {
+      "name": "reason",
+      "type": ["null", "string"],
+      "default": null
+    }
+  ]
+}

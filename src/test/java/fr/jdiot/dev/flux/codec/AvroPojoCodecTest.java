@@ -3,7 +3,9 @@ package fr.jdiot.dev.flux.codec;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import fr.jdiot.dev.flux.core.Acknowledgement;
+import fr.jdiot.dev.flux.core.AcknowledgementUtils;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
+import fr.jdiot.dev.flux.core.ack.Status;
 import fr.jdiot.dev.flux.exception.FluxException;
 import io.netty.buffer.ByteBuf;
 
@@ -12,11 +14,8 @@ class AvroPojoCodecTest {
   @Test
   void shouldEncodeAndDecodeSuccessfully() {
     final PojoCodec<Acknowledgement> codec = new AvroPojoCodec<>(Acknowledgement.class);
-    final Acknowledgement ack = Acknowledgement.builder().fluxId("flux-123").status(Acknowledgement.Status.SUCCESS)
-        .nbElement(10).totalBytes(1024L).serverPreProcessingTimeMs(10L).serverProcessingTimeMs(200L)
-        .serverPostProcessingTimeMs(15L).pullClientPreProcessingTimeMs(5L).pullClientProcessingTimeMs(210L)
-        .pullClientPostProcessingTimeMs(8L).pushClientPreProcessingTimeMs(2L).pushClientProcessingTimeMs(250L)
-        .pushClientPostProcessingTimeMs(3L).reason("All good").build();
+    final Acknowledgement ack = new Acknowledgement("flux-123", Status.SUCCESS, 10, 1024L, 10L, 200L, 15L, 5L, 210L, 8L,
+        2L, 250L, 3L, "All good");
 
     final ByteBuf encoded = codec.encode(ack);
     Assertions.assertNotNull(encoded);
@@ -29,7 +28,7 @@ class AvroPojoCodecTest {
     final Acknowledgement decoded = codec.decode(bytes);
     Assertions.assertNotNull(decoded);
     Assertions.assertEquals("flux-123", decoded.getFluxId());
-    Assertions.assertEquals(Acknowledgement.Status.SUCCESS, decoded.getStatus());
+    Assertions.assertEquals(Status.SUCCESS, decoded.getStatus());
     Assertions.assertEquals(10, decoded.getNbElement());
     Assertions.assertEquals(1024L, decoded.getTotalBytes());
     Assertions.assertEquals(10L, decoded.getServerPreProcessingTimeMs());
@@ -47,7 +46,7 @@ class AvroPojoCodecTest {
   @Test
   void shouldHandleNullValues() {
     final PojoCodec<Acknowledgement> codec = new AvroPojoCodec<>(Acknowledgement.class);
-    final Acknowledgement ack = Acknowledgement.success("flux-456");
+    final Acknowledgement ack = AcknowledgementUtils.success("flux-456");
 
     final ByteBuf encoded = codec.encode(ack);
     Assertions.assertNotNull(encoded);
@@ -60,7 +59,7 @@ class AvroPojoCodecTest {
     final Acknowledgement decoded = codec.decode(bytes);
     Assertions.assertNotNull(decoded);
     Assertions.assertEquals("flux-456", decoded.getFluxId());
-    Assertions.assertEquals(Acknowledgement.Status.SUCCESS, decoded.getStatus());
+    Assertions.assertEquals(Status.SUCCESS, decoded.getStatus());
     Assertions.assertEquals(0, decoded.getNbElement());
     Assertions.assertEquals(0L, decoded.getTotalBytes());
     Assertions.assertEquals(0L, decoded.getServerPreProcessingTimeMs());

@@ -10,8 +10,8 @@ import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.client.FluxClientImpl;
 import fr.jdiot.dev.flux.client.FluxClientProperties;
-import fr.jdiot.dev.flux.core.Acknowledgement;
-import fr.jdiot.dev.flux.core.Acknowledgement.Status;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
+import fr.jdiot.dev.flux.core.ack.Status;
 import fr.jdiot.dev.flux.manager.FluxManager;
 import fr.jdiot.dev.flux.manager.FluxManagerFactory;
 import fr.jdiot.dev.flux.manager.FluxManagerProperties;

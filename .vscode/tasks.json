@@ -11,17 +11,17 @@
     {
       "label": "mvn test",
       "type": "shell",
-      "command": "mvn clean test",
+      "command": "mvn test",
     },
     {
       "label": "mvn verify",
       "type": "shell",
-      "command": "mvn clean verify",
+      "command": "mvn verify",
     },
     {
       "label": "mvn compile",
       "type": "shell",
-      "command": "mvn clean compile",
+      "command": "mvn compile",
     }
   ]
 }

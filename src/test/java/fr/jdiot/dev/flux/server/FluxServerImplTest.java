@@ -15,8 +15,9 @@ import org.mockito.Mockito;
 
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
 import fr.jdiot.dev.flux.codec.PojoCodec;
-import fr.jdiot.dev.flux.core.Acknowledgement;
-import fr.jdiot.dev.flux.core.Acknowledgement.Status;
+import fr.jdiot.dev.flux.core.AcknowledgementUtils;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
+import fr.jdiot.dev.flux.core.ack.Status;
 import fr.jdiot.dev.flux.manager.FluxManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -116,7 +117,7 @@ public class FluxServerImplTest {
     StepVerifier.create(registeredFlux).expectNextMatches(buf -> "data1".equals(buf.toString(StandardCharsets.UTF_8)))
         .verifyComplete();
 
-    ackSink.tryEmitValue(Acknowledgement.success("test-push"));
+    ackSink.tryEmitValue(AcknowledgementUtils.success("test-push"));
 
     // The request should now complete, and the server should have returned SUCCESS
     final Acknowledgement ack = ackFuture.get(2, TimeUnit.SECONDS);
@@ -126,7 +127,7 @@ public class FluxServerImplTest {
 
   @Test
   public void testAck() {
-    final Acknowledgement ack = Acknowledgement.success("test-pull-ack");
+    final Acknowledgement ack = AcknowledgementUtils.success("test-pull-ack");
 
     final HttpClient client = HttpClient.create().protocol(HttpProtocol.H2C)
         .baseUrl("http://localhost:" + this.disposableServer.port());

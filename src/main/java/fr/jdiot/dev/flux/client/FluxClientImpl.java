@@ -5,7 +5,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
 import fr.jdiot.dev.flux.codec.PojoCodec;
-import fr.jdiot.dev.flux.core.Acknowledgement;
+import fr.jdiot.dev.flux.core.AcknowledgementUtils;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
 import fr.jdiot.dev.flux.exception.FluxException;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelOption;
@@ -48,11 +49,11 @@ public class FluxClientImpl implements FluxClient {
             return Flux.error(new FluxException("Failed to pull flux: " + res.status().code()));
           }
           return connection.inbound().receive().doOnSubscribe(_ -> t1.set(System.nanoTime())).doOnComplete(() -> {
-            this.sendAck(Acknowledgement.success(fluxId), t0, t1);
+            this.sendAck(AcknowledgementUtils.success(fluxId), t0, t1);
           }).doOnError(_ -> {
-            this.sendAck(Acknowledgement.failed(fluxId), t0, t1);
+            this.sendAck(AcknowledgementUtils.failed(fluxId), t0, t1);
           }).doOnCancel(() -> {
-            this.sendAck(Acknowledgement.partial(fluxId), t0, t1);
+            this.sendAck(AcknowledgementUtils.partial(fluxId), t0, t1);
           });
         }).doOnSubscribe(_ -> t0.set(System.nanoTime()));
   }

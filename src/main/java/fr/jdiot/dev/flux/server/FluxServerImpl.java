@@ -6,7 +6,7 @@ import org.reactivestreams.Publisher;
 
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
 import fr.jdiot.dev.flux.codec.PojoCodec;
-import fr.jdiot.dev.flux.core.Acknowledgement;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
 import fr.jdiot.dev.flux.manager.FluxManager;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelOption;

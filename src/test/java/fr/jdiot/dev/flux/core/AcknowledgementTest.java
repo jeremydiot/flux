@@ -3,17 +3,15 @@ package fr.jdiot.dev.flux.core;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import fr.jdiot.dev.flux.core.Acknowledgement.Status;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
+import fr.jdiot.dev.flux.core.ack.Status;
 
 public class AcknowledgementTest {
 
   @Test
   public void testAcknowledgementBuilder() {
-    final Acknowledgement ack = Acknowledgement.builder().fluxId("1234-abcd").status(Status.SUCCESS).nbElement(10)
-        .totalBytes(1024L).serverPreProcessingTimeMs(50L).serverProcessingTimeMs(150L).serverPostProcessingTimeMs(10L)
-        .pullClientPreProcessingTimeMs(20L).pullClientProcessingTimeMs(100L).pullClientPostProcessingTimeMs(5L)
-        .pushClientPreProcessingTimeMs(10L).pushClientProcessingTimeMs(300L).pushClientPostProcessingTimeMs(15L)
-        .reason("OK").build();
+    final Acknowledgement ack = new Acknowledgement("1234-abcd", Status.SUCCESS, 10, 1024L, 50L, 150L, 10L, 20L, 100L,
+        5L, 10L, 300L, 15L, "OK");
 
     Assertions.assertEquals("1234-abcd", ack.getFluxId());
     Assertions.assertEquals(Status.SUCCESS, ack.getStatus());

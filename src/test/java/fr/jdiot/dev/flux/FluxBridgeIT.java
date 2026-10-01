@@ -23,9 +23,10 @@ import fr.jdiot.dev.flux.client.FluxClientProperties;
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
 import fr.jdiot.dev.flux.codec.PojoCodec;
 import fr.jdiot.dev.flux.codec.SequentialFluxCodec;
-import fr.jdiot.dev.flux.core.Acknowledgement;
-import fr.jdiot.dev.flux.core.Acknowledgement.Status;
+import fr.jdiot.dev.flux.core.AcknowledgementUtils;
 import fr.jdiot.dev.flux.core.FluxFile;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
+import fr.jdiot.dev.flux.core.ack.Status;
 import fr.jdiot.dev.flux.manager.FluxManager;
 import fr.jdiot.dev.flux.manager.FluxManagerFactory;
 import fr.jdiot.dev.flux.manager.FluxManagerProperties;
@@ -140,10 +141,8 @@ public class FluxBridgeIT {
     FluxBridgeIT.dicomFiles.forEach(file -> {
 
       final byte[] data = file.data();
-      filesToPush
-          .add(FluxFile.<String>builder().metadata(file.name()).dataLength(data.length)
-              .dataStream(Flux.just(Unpooled.wrappedBuffer(data)))
-              .build());
+      filesToPush.add(FluxFile.<String>builder().metadata(file.name()).dataLength(data.length)
+          .dataStream(Flux.just(Unpooled.wrappedBuffer(data))).build());
 
     });
 
@@ -168,7 +167,7 @@ public class FluxBridgeIT {
     final long startTime = System.currentTimeMillis();
 
     final Mono<Acknowledgement> pushAck = FluxBridgeIT.client2.push(fluxId, fluxToPush)
-        .doOnNext(ack -> FluxBridgeIT.log.info("\n{}", ack.printProcessingTimes()));
+        .doOnNext(ack -> FluxBridgeIT.log.info("\n{}", AcknowledgementUtils.pritableReport(ack)));
 
     StepVerifier.create(pushAck)
         .expectNextMatches(ack -> Status.SUCCESS.equals(ack.getStatus()) && fluxId.equals(ack.getFluxId()))

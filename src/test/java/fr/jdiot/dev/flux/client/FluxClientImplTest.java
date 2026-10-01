@@ -9,8 +9,9 @@ import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
 import fr.jdiot.dev.flux.codec.PojoCodec;
-import fr.jdiot.dev.flux.core.Acknowledgement;
-import fr.jdiot.dev.flux.core.Acknowledgement.Status;
+import fr.jdiot.dev.flux.core.AcknowledgementUtils;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
+import fr.jdiot.dev.flux.core.ack.Status;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
@@ -44,7 +45,7 @@ public class FluxClientImplTest {
               final String fluxId = req.param("fluxId");
               return req.receive().aggregate().asString().flatMap(_ -> {
                 try {
-                  final Acknowledgement ack = Acknowledgement.success(fluxId);
+                  final Acknowledgement ack = AcknowledgementUtils.success(fluxId);
                   final ByteBuf buf = FluxClientImplTest.ackCodec.encode(ack);
                   final byte[] bytes = new byte[buf.readableBytes()];
                   buf.readBytes(bytes);

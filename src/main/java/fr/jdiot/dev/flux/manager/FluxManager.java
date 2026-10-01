@@ -3,7 +3,7 @@ package fr.jdiot.dev.flux.manager;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import fr.jdiot.dev.flux.core.Acknowledgement;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import reactor.core.publisher.Flux;
 

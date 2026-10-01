@@ -8,7 +8,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import fr.jdiot.dev.flux.core.Acknowledgement;
+import fr.jdiot.dev.flux.core.AcknowledgementUtils;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
+import fr.jdiot.dev.flux.core.ack.Status;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import reactor.core.publisher.Flux;
@@ -40,7 +42,7 @@ public abstract class AbstractFluxManagerTest {
 
     StepVerifier.create(pulledStream).expectNext(chunk1).expectNext(chunk2).verifyComplete();
 
-    final Acknowledgement ack = Acknowledgement.success("bridge-1-ack");
+    final Acknowledgement ack = AcknowledgementUtils.success("bridge-1-ack");
 
     Assertions.assertEquals(1, this.fluxManager.getActiveFluxIds().size());
 
@@ -65,7 +67,7 @@ public abstract class AbstractFluxManagerTest {
 
     StepVerifier.create(pulledStream).expectNext(chunk1).expectNext(chunk2).verifyComplete();
 
-    final Acknowledgement ack = Acknowledgement.success("bridge-1-ack");
+    final Acknowledgement ack = AcknowledgementUtils.success("bridge-1-ack");
 
     Assertions.assertEquals(1, this.fluxManager.getActiveFluxIds().size());
 
@@ -90,8 +92,7 @@ public abstract class AbstractFluxManagerTest {
     StepVerifier.create(pulledStream).expectNext(chunk1).expectNext(chunk2).verifyComplete();
 
     StepVerifier.create(ackMono)
-        .expectNextMatches(
-            ack -> "push-1".equals(ack.getFluxId()) && Acknowledgement.Status.SUCCESS.equals(ack.getStatus()))
+        .expectNextMatches(ack -> "push-1".equals(ack.getFluxId()) && Status.SUCCESS.equals(ack.getStatus()))
         .verifyComplete();
 
     Assertions.assertTrue(this.fluxManager.getActiveFluxIds().isEmpty());
@@ -113,8 +114,7 @@ public abstract class AbstractFluxManagerTest {
     StepVerifier.create(pulledStream).expectNext(chunk1).expectNext(chunk2).verifyComplete();
 
     StepVerifier.create(ackMono)
-        .expectNextMatches(
-            ack -> "push-1".equals(ack.getFluxId()) && Acknowledgement.Status.SUCCESS.equals(ack.getStatus()))
+        .expectNextMatches(ack -> "push-1".equals(ack.getFluxId()) && Status.SUCCESS.equals(ack.getStatus()))
         .verifyComplete();
 
     Assertions.assertTrue(this.fluxManager.getActiveFluxIds().isEmpty());
@@ -135,11 +135,10 @@ public abstract class AbstractFluxManagerTest {
 
     // In a pull scenario, stream completion does NOT automatically send an ACK.
     // We explicitly acknowledge it as a client would.
-    this.fluxManager.acknowledge("pull-1", Acknowledgement.success("pull-1"));
+    this.fluxManager.acknowledge("pull-1", AcknowledgementUtils.success("pull-1"));
 
     StepVerifier.create(ackMono)
-        .expectNextMatches(
-            ack -> "pull-1".equals(ack.getFluxId()) && Acknowledgement.Status.SUCCESS.equals(ack.getStatus()))
+        .expectNextMatches(ack -> "pull-1".equals(ack.getFluxId()) && Status.SUCCESS.equals(ack.getStatus()))
         .verifyComplete();
 
     Assertions.assertTrue(this.fluxManager.getActiveFluxIds().isEmpty());
@@ -162,11 +161,10 @@ public abstract class AbstractFluxManagerTest {
 
     // In a pull scenario, stream completion does NOT automatically send an ACK.
     // We explicitly acknowledge it as a client would.
-    this.fluxManager.acknowledge("pull-1", Acknowledgement.success("pull-1"));
+    this.fluxManager.acknowledge("pull-1", AcknowledgementUtils.success("pull-1"));
 
     StepVerifier.create(ackMono)
-        .expectNextMatches(
-            ack -> "pull-1".equals(ack.getFluxId()) && Acknowledgement.Status.SUCCESS.equals(ack.getStatus()))
+        .expectNextMatches(ack -> "pull-1".equals(ack.getFluxId()) && Status.SUCCESS.equals(ack.getStatus()))
         .verifyComplete();
 
     Assertions.assertTrue(this.fluxManager.getActiveFluxIds().isEmpty());
@@ -178,7 +176,7 @@ public abstract class AbstractFluxManagerTest {
     Assertions.assertThrows(IllegalArgumentException.class,
         () -> this.fluxManager.registerFlux("invalid-2", Flux.empty()));
     Assertions.assertThrows(IllegalArgumentException.class,
-        () -> this.fluxManager.acknowledge("invalid-3", Acknowledgement.success("invalid-3")));
+        () -> this.fluxManager.acknowledge("invalid-3", AcknowledgementUtils.success("invalid-3")));
   }
 
   @Test
@@ -197,8 +195,7 @@ public abstract class AbstractFluxManagerTest {
 
     // StepVerifier will wait for the emission from the background cleanup task
     StepVerifier.create(ackMono)
-        .expectNextMatches(
-            ack -> "push-stale-flux".equals(ack.getFluxId()) && Acknowledgement.Status.FAILED.equals(ack.getStatus()))
+        .expectNextMatches(ack -> "push-stale-flux".equals(ack.getFluxId()) && Status.FAILED.equals(ack.getStatus()))
         .expectComplete().verify(Duration.ofMillis(200));
 
     // Verify it's removed

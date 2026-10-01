@@ -9,7 +9,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-import fr.jdiot.dev.flux.core.Acknowledgement;
+import fr.jdiot.dev.flux.core.AcknowledgementUtils;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -106,7 +107,7 @@ public abstract class AbstractFluxManager implements FluxManager {
 
     this.activeFluxes.forEach((fluxId, state) -> {
       state.streamSink.tryEmitValue(Flux.error(new InterruptedException("Flux manager stopped")));
-      this.emitAck(state, Acknowledgement.failed(fluxId, "Flux manager stopped"));
+      this.emitAck(state, AcknowledgementUtils.failed(fluxId, "Flux manager stopped"));
     });
     this.activeFluxes.clear();
   }
@@ -117,15 +118,15 @@ public abstract class AbstractFluxManager implements FluxManager {
 
     final Flux<ByteBuf> hookedFLux = processor.get().doOnCancel(() -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
-        this.emitAck(state, Acknowledgement.partial(fluxId));
+        this.emitAck(state, AcknowledgementUtils.partial(fluxId));
       }
     }).doOnError(_ -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
-        this.emitAck(state, Acknowledgement.failed(fluxId));
+        this.emitAck(state, AcknowledgementUtils.failed(fluxId));
       }
     }).doOnComplete(() -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
-        this.emitAck(state, Acknowledgement.success(fluxId));
+        this.emitAck(state, AcknowledgementUtils.success(fluxId));
       }
     });
 
@@ -143,7 +144,7 @@ public abstract class AbstractFluxManager implements FluxManager {
       if (now - state.lastActivityTimestamp.get() > timeout) {
         if (this.activeFluxes.remove(fluxId, state)) {
           state.streamSink.tryEmitError(new TimeoutException("Flux timed out"));
-          this.emitAck(state, Acknowledgement.failed(fluxId, "Flux timed out"));
+          this.emitAck(state, AcknowledgementUtils.failed(fluxId, "Flux timed out"));
           if (!state.isSubscribed) {
             state.streamSink.asMono().subscribe(flux -> flux.doOnDiscard(ByteBuf.class, ReferenceCountUtil::safeRelease)
                 .subscribe(ReferenceCountUtil::safeRelease, _ -> {

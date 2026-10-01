@@ -2,7 +2,7 @@ package fr.jdiot.dev.flux.manager;
 
 import org.reactivestreams.Subscription;
 
-import fr.jdiot.dev.flux.core.Acknowledgement;
+import fr.jdiot.dev.flux.core.ack.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
 import lombok.extern.slf4j.Slf4j;
