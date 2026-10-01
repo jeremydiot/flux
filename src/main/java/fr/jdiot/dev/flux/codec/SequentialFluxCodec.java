@@ -14,7 +14,6 @@ import reactor.core.publisher.FluxSink;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.SignalType;
 import reactor.core.publisher.Sinks;
-import reactor.core.scheduler.Schedulers;
 import reactor.util.concurrent.Queues;
 
 public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
@@ -52,7 +51,7 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
       metadataBuf.release();
 
       return Flux.concat(Flux.just(header), file.getDataStream());
-    }).subscribeOn(Schedulers.parallel()).flatMapMany(f -> f), this.maxConcurrency, this.prefetch);
+    }).flatMapMany(f -> f), this.maxConcurrency, this.prefetch);
   }
 
   @Override
@@ -66,7 +65,7 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
     return rawStream.flatMapSequential(raw -> Mono.fromCallable(() -> {
       final M metadata = this.metadataCodec.decode(raw.metadataBytes);
       return FluxFile.<M>builder().metadata(metadata).dataLength(raw.dataLength).dataStream(raw.dataStream).build();
-    }).subscribeOn(Schedulers.parallel()), this.maxConcurrency, this.prefetch);
+    }), this.maxConcurrency, this.prefetch);
   }
 
   private static class RawFile {
@@ -203,8 +202,7 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
           if (remainingData > 0) {
             final int toRead = (int) Math.min(this.buffer.readableBytes(), remainingData);
             if (toRead > 0) {
-              final ByteBuf dataChunk = this.buffer.alloc().buffer(toRead);
-              this.buffer.readBytes(dataChunk);
+              final ByteBuf dataChunk = this.buffer.readRetainedSlice(toRead);
               if (this.dataSink.tryEmitNext(dataChunk).isFailure()) {
                 // If the sink is cancelled or overflows, we must release the chunk to prevent
                 // memory leaks

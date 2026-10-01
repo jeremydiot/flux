@@ -142,8 +142,7 @@ public class FluxBridgeIT {
       final byte[] data = file.data();
       filesToPush
           .add(FluxFile.<String>builder().metadata(file.name()).dataLength(data.length)
-              .dataStream(Flux.range(0, (data.length + 65535) / 65536)
-                  .map(i -> Unpooled.wrappedBuffer(data, i * 65536, Math.min(65536, data.length - i * 65536))))
+              .dataStream(Flux.just(Unpooled.wrappedBuffer(data)))
               .build());
 
     });
