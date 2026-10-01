@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
@@ -47,9 +48,12 @@ public class FluxBridgeIT {
   private static int port;
   private static DisposableServer disposableServer;
   private static final List<Acknowledgement> interceptedAcks = new CopyOnWriteArrayList<>();
+  private static FluxClientImpl client1;
+  private static FluxClientImpl client2;
+  private static List<DicomFile> dicomFiles;
 
   @BeforeAll
-  static void setUp() {
+  static void setUp() throws IOException {
     final FluxManagerProperties properties = new FluxManagerProperties();
     properties.setBackPressureSize(256);
     properties.setBackpressureStrategy(BackpressureStrategy.TCP_LAZY);
@@ -61,6 +65,22 @@ public class FluxBridgeIT {
     FluxBridgeIT.fluxManager.setAckHandler(FluxBridgeIT.interceptedAcks::add);
     FluxBridgeIT.disposableServer = FluxBridgeIT.server.start();
     FluxBridgeIT.port = FluxBridgeIT.disposableServer.port();
+
+    FluxBridgeIT.client1 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port, new FluxClientProperties());
+    FluxBridgeIT.client2 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port, new FluxClientProperties());
+
+    final Path dicomDir = Paths.get("src/test/resources/dicom");
+    FluxBridgeIT.dicomFiles = Files.list(dicomDir).filter(Files::isRegularFile).parallel().map(path -> {
+      try {
+        return new DicomFile(path.getFileName().toString(), Files.readAllBytes(path));
+      } catch (final IOException e) {
+        throw new RuntimeException(e);
+      }
+    }).collect(Collectors.toList());
+
+  }
+
+  private static record DicomFile(String name, byte[] data) {
   }
 
   @AfterAll
@@ -74,15 +94,10 @@ public class FluxBridgeIT {
   void testBridgeScenario5_3Bridge() throws InterruptedException {
     final String fluxId = "bridge-flux-it-789";
 
-    final FluxClientImpl client1 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port,
-        new FluxClientProperties());
-    final FluxClientImpl client2 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port,
-        new FluxClientProperties());
-
     // 1. APP_CLIENT1 asking APP_SERVER to get data flux.
     // 2. APP_SERVER keep open and save the connection with APP_CLIENT1, not respond
     // immediately.
-    final Flux<ByteBuf> pullStream = client1.pull(fluxId);
+    final Flux<ByteBuf> pullStream = FluxBridgeIT.client1.pull(fluxId);
 
     final CountDownLatch latch = new CountDownLatch(1);
     final List<String> results = new ArrayList<>();
@@ -95,12 +110,10 @@ public class FluxBridgeIT {
     }).map(StringBuilder::toString).subscribe(data -> results.add(data), _ -> latch.countDown(),
         () -> latch.countDown());
 
-
-
     // 3. APP_CLIENT2 send chunked data flux to APP_SERVER.
     final Flux<ByteBuf> fluxToPush = Flux.just("BridgeA", "BridgeB").map(String::getBytes).map(Unpooled::wrappedBuffer);
 
-    final Mono<Acknowledgement> pushAck = client2.push(fluxId, fluxToPush);
+    final Mono<Acknowledgement> pushAck = FluxBridgeIT.client2.push(fluxId, fluxToPush);
 
     // 4 & 6. Verify Client 2 receives SUCCESS Ack from server AFTER Client 1
     // finishes and acknowledges.
@@ -119,33 +132,23 @@ public class FluxBridgeIT {
   void testBridgeScenario5_3BridgeWithFramedFileCodec() throws InterruptedException, IOException {
     final String fluxId = "bridge-flux-dicom-it-001";
 
-    final FluxClientImpl client1 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port,
-        new FluxClientProperties());
-    final FluxClientImpl client2 = new FluxClientImpl("http://127.0.0.1:" + FluxBridgeIT.port,
-        new FluxClientProperties());
-
     final PojoCodec<String> stringCodec = new AvroPojoCodec<>(String.class);
     final SequentialFluxCodec<String> framedCodec = new SequentialFluxCodec<>(stringCodec);
 
-    // Prepare files to push
-    final Path dicomDir = Paths.get("src/test/resources/dicom");
-
     // We read all files from the directory to test
     final List<FluxFile<String>> filesToPush = Collections.synchronizedList(new ArrayList<>());
-    Files.list(dicomDir).filter(Files::isRegularFile).parallel().forEach(path -> {
-      try {
-        final byte[] data = Files.readAllBytes(path);
-        filesToPush
-            .add(FluxFile.<String>builder().metadata(path.getFileName().toString()).dataLength(data.length)
-                .dataStream(Flux.range(0, (data.length + 65535) / 65536)
-                    .map(i -> Unpooled.wrappedBuffer(data, i * 65536, Math.min(65536, data.length - i * 65536))))
-                .build());
-      } catch (final IOException e) {
-        throw new RuntimeException(e);
-      }
+    FluxBridgeIT.dicomFiles.forEach(file -> {
+
+      final byte[] data = file.data();
+      filesToPush
+          .add(FluxFile.<String>builder().metadata(file.name()).dataLength(data.length)
+              .dataStream(Flux.range(0, (data.length + 65535) / 65536)
+                  .map(i -> Unpooled.wrappedBuffer(data, i * 65536, Math.min(65536, data.length - i * 65536))))
+              .build());
+
     });
 
-    final Flux<ByteBuf> pullStream = client1.pull(fluxId);
+    final Flux<ByteBuf> pullStream = FluxBridgeIT.client1.pull(fluxId);
 
     final CountDownLatch latch = new CountDownLatch(1);
     final List<FluxFile<String>> results = new ArrayList<>();
@@ -161,13 +164,11 @@ public class FluxBridgeIT {
         .dataStream(Flux.empty()).build())).subscribe(results::add, _ -> {
         }, () -> latch.countDown());
 
-
-
     final Flux<ByteBuf> fluxToPush = framedCodec.encode(Flux.fromStream(filesToPush.stream()));
 
     final long startTime = System.currentTimeMillis();
 
-    final Mono<Acknowledgement> pushAck = client2.push(fluxId, fluxToPush)
+    final Mono<Acknowledgement> pushAck = FluxBridgeIT.client2.push(fluxId, fluxToPush)
         .doOnNext(ack -> FluxBridgeIT.log.info("\n{}", ack.printProcessingTimes()));
 
     StepVerifier.create(pushAck)

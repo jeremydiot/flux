@@ -45,25 +45,20 @@ public class FluxClientImpl implements FluxClient {
             return Flux.error(new FluxException("Failed to pull flux: " + res.status().code()));
           }
           return connection.inbound().receive().doOnSubscribe(_ -> t1.set(System.nanoTime())).doOnComplete(() -> {
-            final long t2 = System.nanoTime();
-            final Acknowledgement ack = Acknowledgement.success(fluxId);
-            ack.setPullClientPreProcessingTimeMs((t1.get() - t0.get()) / 1_000_000);
-            ack.setPullClientProcessingTimeMs((t2 - t1.get()) / 1_000_000);
-            this.sendAck(ack, t2);
+            this.sendAck(Acknowledgement.success(fluxId), t0, t1);
           }).doOnError(_ -> {
-            final long t2 = System.nanoTime();
-            final Acknowledgement ack = Acknowledgement.failed(fluxId);
-            ack.setPullClientPreProcessingTimeMs((t1.get() - t0.get()) / 1_000_000);
-            ack.setPullClientProcessingTimeMs((t2 - t1.get()) / 1_000_000);
-            this.sendAck(ack, t2);
+            this.sendAck(Acknowledgement.failed(fluxId), t0, t1);
           }).doOnCancel(() -> {
-            final long t2 = System.nanoTime();
-            final Acknowledgement ack = Acknowledgement.partial(fluxId);
-            ack.setPullClientPreProcessingTimeMs((t1.get() - t0.get()) / 1_000_000);
-            ack.setPullClientProcessingTimeMs((t2 - t1.get()) / 1_000_000);
-            this.sendAck(ack, t2);
+            this.sendAck(Acknowledgement.partial(fluxId), t0, t1);
           });
         }).doOnSubscribe(_ -> t0.set(System.nanoTime()));
+  }
+
+  private void sendAck(final Acknowledgement ack, final AtomicLong t0, final AtomicLong t1) {
+    final long t2 = System.nanoTime();
+    ack.setPullClientPreProcessingTimeMs((t1.get() - t0.get()) / 1_000_000);
+    ack.setPullClientProcessingTimeMs((t2 - t1.get()) / 1_000_000);
+    this.sendAck(ack, t2);
   }
 
   private void sendAck(final Acknowledgement ack, final long t2) {

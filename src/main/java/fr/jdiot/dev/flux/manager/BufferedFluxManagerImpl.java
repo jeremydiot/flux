@@ -1,9 +1,12 @@
 package fr.jdiot.dev.flux.manager;
 
+import org.reactivestreams.Subscription;
+
 import fr.jdiot.dev.flux.core.Acknowledgement;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.BaseSubscriber;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
@@ -26,9 +29,9 @@ public class BufferedFluxManagerImpl extends AbstractFluxManager {
       final int bufferSize = this.properties.getBackPressureSize();
       final Sinks.Many<ByteBuf> dataSink = Sinks.many().unicast().onBackpressureBuffer();
 
-      final reactor.core.publisher.BaseSubscriber<ByteBuf> subscriber = new reactor.core.publisher.BaseSubscriber<ByteBuf>() {
+      final BaseSubscriber<ByteBuf> subscriber = new BaseSubscriber<ByteBuf>() {
         @Override
-        protected void hookOnSubscribe(final org.reactivestreams.Subscription subscription) {
+        protected void hookOnSubscribe(final Subscription subscription) {
           this.request(bufferSize);
         }
 
