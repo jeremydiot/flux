@@ -73,8 +73,8 @@ public abstract class AbstractFluxManager implements FluxManager {
     final FluxState state = this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState());
     Flux<ByteBuf> flux = state.streamSink.asMono().flatMapMany(f -> f).doOnSubscribe(_ -> {
       state.isSubscribed = true;
-      state.lastActivityTimestamp.set(System.currentTimeMillis());
-    }).doOnNext(_ -> state.lastActivityTimestamp.set(System.currentTimeMillis())).doOnDiscard(ByteBuf.class,
+      state.lastActivityTimestamp.lazySet(System.currentTimeMillis());
+    }).doOnNext(_ -> state.lastActivityTimestamp.lazySet(System.currentTimeMillis())).doOnDiscard(ByteBuf.class,
         ReferenceCountUtil::safeRelease);
 
     if (fluxId.startsWith("push-")) {

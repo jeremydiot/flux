@@ -28,7 +28,7 @@ public class FluxClientImpl implements FluxClient {
 
     this.httpClient = HttpClient.create(provider).option(ChannelOption.TCP_NODELAY, true)
         .option(ChannelOption.SO_KEEPALIVE, true).protocol(HttpProtocol.H2C)
-        .http2Settings(builder -> builder.initialWindowSize(properties.getInitialWindowSize())).baseUrl(baseUrl)
+        .http2Settings(builder -> builder.initialWindowSize(properties.getInitialWindowSize()).maxFrameSize(properties.getMaxFrameSize())).baseUrl(baseUrl)
         // .option(ChannelOption.SO_SNDBUF, 1024 * 1024) // doit être plus grand qu'un
         // chunk
         // .option(ChannelOption.SO_RCVBUF, 1024 * 1024) // doit être plus grand qu'un

@@ -154,7 +154,7 @@ public class FluxBridgeIT {
     // Decode the pull stream
     final Flux<FluxFile<String>> decodedStream = framedCodec.decode(pullStream);
 
-    decodedStream.concatMap(decodedFile -> decodedFile.getDataStream().reduce(0, (count, buf) -> {
+    decodedStream.flatMapSequential(decodedFile -> decodedFile.getDataStream().reduce(0, (count, buf) -> {
       count += buf.readableBytes();
       buf.release();
       return count;
@@ -162,7 +162,7 @@ public class FluxBridgeIT {
         .dataStream(Flux.empty()).build())).subscribe(results::add, _ -> {
         }, () -> latch.countDown());
 
-    final Flux<ByteBuf> fluxToPush = framedCodec.encode(Flux.fromStream(filesToPush.stream()));
+    final Flux<ByteBuf> fluxToPush = framedCodec.encode(Flux.fromIterable(filesToPush));
 
     final long startTime = System.currentTimeMillis();
 
@@ -197,4 +197,5 @@ public class FluxBridgeIT {
             .anyMatch(ack -> fluxId.equals(ack.getFluxId()) && Status.SUCCESS.equals(ack.getStatus())),
         "Server should have intercepted the SUCCESS ack");
   }
+
 }

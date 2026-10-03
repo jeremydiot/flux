@@ -47,7 +47,7 @@ public class FluxServerImpl implements FluxServer {
         // chunk
         .childOption(ChannelOption.TCP_NODELAY, true).childOption(ChannelOption.SO_KEEPALIVE, true)
         .protocol(HttpProtocol.H2C)
-        .http2Settings(builder -> builder.initialWindowSize(this.properties.getInitialWindowSize())).host(this.host)
+        .http2Settings(builder -> builder.initialWindowSize(this.properties.getInitialWindowSize()).maxFrameSize(this.properties.getMaxFrameSize())).host(this.host)
         .port(this.port).route(this::configureRoutes);
 
     httpServer.warmup().block();
