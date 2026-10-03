@@ -10,6 +10,7 @@ import fr.jdiot.dev.flux.core.ack.Acknowledgement;
 import fr.jdiot.dev.flux.exception.FluxException;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelOption;
+import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.netty.http.HttpProtocol;
@@ -20,15 +21,22 @@ public class FluxClientImpl implements FluxClient {
 
   private final HttpClient httpClient;
   private final PojoCodec<Acknowledgement> ackCodec = new AvroPojoCodec<>(Acknowledgement.class);
+  private Disposable keepAliveDisposable;
 
   public FluxClientImpl(final String baseUrl, final FluxClientProperties properties) {
     final ConnectionProvider provider = ConnectionProvider.builder("flux-client-pool")
         .maxConnections(properties.getPoolMaxConnections())
-        .pendingAcquireMaxCount(properties.getPoolPendingAcquireMaxCount()).build();
+        .pendingAcquireMaxCount(properties.getPoolPendingAcquireMaxCount())
+        .maxIdleTime(Duration.ofMillis(properties.getPoolMaxIdleTimeMillis()))
+        .maxLifeTime(Duration.ofMillis(properties.getPoolMaxLifeTimeMillis()))
+        .evictInBackground(Duration.ofMillis(properties.getPoolMaxIdleTimeMillis() * 2)).build();
 
     this.httpClient = HttpClient.create(provider).option(ChannelOption.TCP_NODELAY, true)
-        .option(ChannelOption.SO_KEEPALIVE, true).protocol(HttpProtocol.H2C)
-        .http2Settings(builder -> builder.initialWindowSize(properties.getInitialWindowSize()).maxFrameSize(properties.getMaxFrameSize())).baseUrl(baseUrl)
+        .option(ChannelOption.SO_KEEPALIVE, true).option(ChannelOption.TCP_FASTOPEN_CONNECT, true)
+        .protocol(HttpProtocol.H2C)
+        .http2Settings(builder -> builder.initialWindowSize(properties.getInitialWindowSize())
+            .maxFrameSize(properties.getMaxFrameSize()))
+        .baseUrl(baseUrl)
         // .option(ChannelOption.SO_SNDBUF, 1024 * 1024) // doit être plus grand qu'un
         // chunk
         // .option(ChannelOption.SO_RCVBUF, 1024 * 1024) // doit être plus grand qu'un
@@ -36,6 +44,20 @@ public class FluxClientImpl implements FluxClient {
         .responseTimeout(Duration.ofMillis(properties.getResponseTimeoutMillis()));
 
     this.httpClient.warmup().block(); // wait for client complete initialization
+
+    if (properties.getPoolStandbyConnections() > 0) {
+      // pre open TCP connection (HTTP/2) by creating standby connection in background
+      Flux.range(0, properties.getPoolStandbyConnections())
+          .flatMap(_ -> this.httpClient.get().uri("/api/v1/ping").responseContent().aggregate().asString()).blockLast();
+
+      // Keep connections warm indefinitely
+      final long pingInterval = Math.max(10_000, properties.getPoolMaxIdleTimeMillis() - 10_000);
+      this.keepAliveDisposable = Flux.interval(Duration.ofMillis(pingInterval))
+          .flatMap(_ -> Flux.range(0, properties.getPoolStandbyConnections())
+              .flatMap(_ -> this.httpClient.get().uri("/api/v1/ping").responseContent().aggregate().asString()))
+          .subscribe(_ -> {
+          }, err -> System.err.println("Failed to keep standby connections warm: " + err.getMessage()));
+    }
   }
 
   @Override
@@ -102,5 +124,12 @@ public class FluxClientImpl implements FluxClient {
             return ack;
           });
         }).doOnSubscribe(_ -> t0.set(System.nanoTime()));
+  }
+
+  @Override
+  public void stop() {
+    if (this.keepAliveDisposable != null && !this.keepAliveDisposable.isDisposed()) {
+      this.keepAliveDisposable.dispose();
+    }
   }
 }

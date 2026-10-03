@@ -34,7 +34,11 @@
   "java.codeGeneration.addFinalForNewDeclaration": "all",
   "java.test.config": {
     "vmArgs": [
-      "--enable-native-access=ALL-UNNAMED"
+      "--enable-native-access=ALL-UNNAMED",
+      "-Xms8g",
+      "-Xmx8g",
+      "-XX:+UseParallelGC",
+      "-XX:+AlwaysPreTouch"
     ]
   }
 }

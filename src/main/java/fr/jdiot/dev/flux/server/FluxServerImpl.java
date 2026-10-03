@@ -39,7 +39,7 @@ public class FluxServerImpl implements FluxServer {
 
   @Override
   public DisposableServer start() {
-    final HttpServer httpServer = HttpServer.create()
+    final HttpServer httpServer = HttpServer.create().option(ChannelOption.TCP_FASTOPEN, 256)
         .option(ChannelOption.SO_BACKLOG, this.properties.getInnerConnectionQueueSize())
         // .option(ChannelOption.SO_SNDBUF, 1024 * 1024) // doit être plus grand qu'un
         // chunk
@@ -47,8 +47,9 @@ public class FluxServerImpl implements FluxServer {
         // chunk
         .childOption(ChannelOption.TCP_NODELAY, true).childOption(ChannelOption.SO_KEEPALIVE, true)
         .protocol(HttpProtocol.H2C)
-        .http2Settings(builder -> builder.initialWindowSize(this.properties.getInitialWindowSize()).maxFrameSize(this.properties.getMaxFrameSize())).host(this.host)
-        .port(this.port).route(this::configureRoutes);
+        .http2Settings(builder -> builder.initialWindowSize(this.properties.getInitialWindowSize())
+            .maxFrameSize(this.properties.getMaxFrameSize()))
+        .host(this.host).port(this.port).route(this::configureRoutes);
 
     httpServer.warmup().block();
     this.disposableServer = httpServer.bindNow();
@@ -57,6 +58,7 @@ public class FluxServerImpl implements FluxServer {
   }
 
   private void configureRoutes(final HttpServerRoutes routes) {
+    routes.get("/api/v1/ping", (_, res) -> res.status(200).sendString(Mono.just("pong")));
     routes.get("/api/v1/flux/{fluxId}", this::handlePullRequest);
     routes.post("/api/v1/flux/{fluxId}", this::handlePushRequest);
     routes.post("/api/v1/flux/{fluxId}/ack", this::handleAckRequest);

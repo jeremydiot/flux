@@ -19,4 +19,9 @@ public interface FluxClient {
    * Pushes a data flux to the server and returns the acknowledgement.
    */
   Mono<Acknowledgement> push(String fluxId, Flux<ByteBuf> dataStream);
+
+  /**
+   * Stops the client and its background tasks.
+   */
+  void stop();
 }
