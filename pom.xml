@@ -141,7 +141,7 @@
               <goal>schema</goal>
             </goals>
             <configuration>
-              <sourceDirectory>${project.basedir}/src/main/avro/</sourceDirectory>
+              <sourceDirectory>${project.basedir}/src/main/resources/avro/</sourceDirectory>
               <outputDirectory>${project.build.directory}/generated-sources/ack/</outputDirectory>
               <stringType>String</stringType>
             </configuration>
@@ -152,14 +152,16 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>${maven-surefire-plugin.version}</version>
         <configuration>
-          <argLine>--enable-native-access=ALL-UNNAMED -Xms8g -Xmx8g -XX:+UseParallelGC -XX:+AlwaysPreTouch</argLine>
+          <argLine>--enable-native-access=ALL-UNNAMED -Xms8g -Xmx8g -XX:+UseParallelGC
+            -XX:+AlwaysPreTouch</argLine>
         </configuration>
       </plugin>
       <plugin>
         <artifactId>maven-failsafe-plugin</artifactId>
         <version>${maven-failsafe-plugin.version}</version>
         <configuration>
-          <argLine>--enable-native-access=ALL-UNNAMED -Xms8g -Xmx8g -XX:+UseParallelGC -XX:+AlwaysPreTouch</argLine>
+          <argLine>--enable-native-access=ALL-UNNAMED -Xms8g -Xmx8g -XX:+UseParallelGC
+            -XX:+AlwaysPreTouch</argLine>
           <includes>
             <include>**/*IT.java</include>
           </includes>
