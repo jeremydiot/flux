@@ -1,6 +1,6 @@
 package fr.jdiot.dev.flux.codec;
 
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.reactivestreams.Subscription;
 
@@ -11,7 +11,6 @@ import io.netty.buffer.PooledByteBufAllocator;
 import reactor.core.publisher.BaseSubscriber;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
-import reactor.core.publisher.Mono;
 import reactor.core.publisher.SignalType;
 import reactor.core.publisher.Sinks;
 import reactor.util.concurrent.Queues;
@@ -34,24 +33,39 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
 
   @Override
   public Flux<ByteBuf> encode(final Flux<FluxFile<M>> flux) {
-    return flux.flatMapSequential(file -> Mono.fromCallable(() -> {
+    return flux.flatMapSequential(file -> Flux.defer(() -> {
+      if (file.getDataLength() < 0 || file.getDataLength() > 4294967295L) {
+        return Flux.error(new IllegalArgumentException("File size exceeds protocol limit of 4GB"));
+      }
+
       final ByteBuf metadataBuf = this.metadataCodec.encode(file.getMetadata());
       final int metadataLength = metadataBuf.readableBytes();
-
-      // The protocol uses 4 bytes for data length (M)
-      // Validate file size, for prevent signed integer overflow. limit is ~4.29 Go
-      if (file.getDataLength() < 0 || file.getDataLength() > 4294967295L) {
-        throw new IllegalArgumentException("File size exceeds protocol limit of 4GB");
-      }
 
       final ByteBuf header = PooledByteBufAllocator.DEFAULT.buffer(8 + metadataLength);
       header.writeInt(metadataLength);
       header.writeBytes(metadataBuf);
       header.writeInt((int) file.getDataLength());
       metadataBuf.release();
-
-      return Flux.concat(Flux.just(header), file.getDataStream());
-    }).flatMapMany(f -> f), this.maxConcurrency, this.prefetch);
+      // Prepend header to the first data chunk to avoid separate onNext / HTTP frame
+      final AtomicBoolean first = new AtomicBoolean(true);
+      return file.getDataStream().map(chunk -> {
+        if (first.compareAndSet(true, false)) {
+          final CompositeByteBuf combined = PooledByteBufAllocator.DEFAULT.compositeBuffer(2);
+          combined.addComponent(true, header);
+          combined.addComponent(true, chunk);
+          return (ByteBuf) combined;
+        }
+        return chunk;
+      }).doOnError(e -> {
+        if (first.get() && header.refCnt() > 0) {
+          header.release();
+        }
+      }).doOnCancel(() -> {
+        if (first.get() && header.refCnt() > 0) {
+          header.release();
+        }
+      }).switchIfEmpty(Flux.defer(() -> Flux.just(header))); // If dataStream is empty, just emit header
+    }), this.maxConcurrency, this.prefetch);
   }
 
   @Override
@@ -62,10 +76,10 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
       flux.subscribe(subscriber);
     }, FluxSink.OverflowStrategy.BUFFER);
 
-    return rawStream.flatMapSequential(raw -> Mono.fromCallable(() -> {
+    return rawStream.map(raw -> {
       final M metadata = this.metadataCodec.decode(raw.metadataBytes);
       return FluxFile.<M>builder().metadata(metadata).dataLength(raw.dataLength).dataStream(raw.dataStream).build();
-    }), this.maxConcurrency, this.prefetch);
+    });
   }
 
   private static class RawFile {
@@ -81,12 +95,24 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
   }
 
   private enum Stage {
-    READ_N_LENGTH, READ_METADATA, READ_M_LENGTH, READ_DATA
+    READ_N_LENGTH, READ_METADATA, READ_M_LENGTH, READ_DATA, WAIT_FOR_DATA_FAST_PATH
   }
 
+  /**
+   * High-performance framed decoder subscriber.
+   * <p>
+   * Uses cumulation strategy: incoming chunks are accumulated into a single
+   * contiguous buffer via Netty's cumulator pattern (same as
+   * ByteToMessageDecoder). This avoids CompositeByteBuf O(n) component traversal
+   * on readableBytes()/readInt() while keeping copy overhead minimal (only
+   * residual unread bytes are copied at the start of each cumulation).
+   * <p>
+   * Upstream is requested unboundedly — backpressure is handled by H2C flow
+   * control window at the network level.
+   */
   private class FramedDecoderSubscriber extends BaseSubscriber<ByteBuf> {
     private final FluxSink<RawFile> outerSink;
-    private final CompositeByteBuf buffer = PooledByteBufAllocator.DEFAULT.compositeBuffer();
+    private ByteBuf cumulation;
 
     private Stage stage = Stage.READ_N_LENGTH;
     private int metadataLength = 0;
@@ -94,7 +120,6 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
     private long dataLength = 0;
     private long dataRead = 0;
     private Sinks.Many<ByteBuf> dataSink = null;
-    private final AtomicLong innerDemand = new AtomicLong(0);
 
     public FramedDecoderSubscriber(final FluxSink<RawFile> outerSink) {
       this.outerSink = outerSink;
@@ -102,13 +127,43 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
 
     @Override
     protected void hookOnSubscribe(final Subscription subscription) {
-      this.request(1);
+      this.request(Long.MAX_VALUE);
     }
 
     @Override
     protected void hookOnNext(final ByteBuf chunk) {
-      this.buffer.addComponent(true, chunk.retain());
+      this.cumulate(chunk);
       this.process();
+    }
+
+    /**
+     * Cumulation strategy inspired by Netty's ByteToMessageDecoder.MERGE_CUMULATOR.
+     * If the existing cumulation buffer has enough writable space, the new chunk is
+     * appended directly. Otherwise, a new buffer is allocated with the combined
+     * size. This avoids O(n) CompositeByteBuf component scans while keeping copy
+     * overhead to a minimum — only residual unread bytes from the previous
+     * cumulation are copied, not the full history.
+     */
+    private void cumulate(final ByteBuf chunk) {
+      if (this.cumulation == null || !this.cumulation.isReadable()) {
+        if (this.cumulation != null) {
+          this.cumulation.release();
+        }
+        this.cumulation = chunk.retain();
+      } else if (this.cumulation.writableBytes() >= chunk.readableBytes()) {
+        this.cumulation.writeBytes(chunk);
+      } else {
+        final int required = this.cumulation.readableBytes() + chunk.readableBytes();
+        int allocSize = required << 1;
+        if (this.stage == Stage.WAIT_FOR_DATA_FAST_PATH && this.dataLength > allocSize) {
+          allocSize = (int) this.dataLength + 1024; // Pre-allocate exactly what's needed plus some headroom
+        }
+        final ByteBuf newBuf = PooledByteBufAllocator.DEFAULT.buffer(allocSize);
+        newBuf.writeBytes(this.cumulation);
+        newBuf.writeBytes(chunk);
+        this.cumulation.release();
+        this.cumulation = newBuf;
+      }
     }
 
     @Override
@@ -117,12 +172,12 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
         this.dataSink.tryEmitError(throwable);
       }
       this.outerSink.error(throwable);
-      this.buffer.release();
+      this.releaseCumulation();
     }
 
     @Override
     protected void hookOnComplete() {
-      if (this.buffer.readableBytes() > 0 || this.stage == Stage.READ_DATA) {
+      if ((this.cumulation != null && this.cumulation.readableBytes() > 0) || this.stage == Stage.READ_DATA) {
         final IllegalStateException err = new IllegalStateException("Incomplete frame at end of stream");
         if (this.dataSink != null) {
           this.dataSink.tryEmitError(err);
@@ -131,7 +186,7 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
       } else {
         this.outerSink.complete();
       }
-      this.buffer.release();
+      this.releaseCumulation();
     }
 
     @Override
@@ -139,59 +194,77 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
       // Buffer is released in hookOnComplete/hookOnError
     }
 
+    private void releaseCumulation() {
+      if (this.cumulation != null && this.cumulation.refCnt() > 0) {
+        this.cumulation.release();
+        this.cumulation = null;
+      }
+    }
+
     private void process() {
-      while (this.buffer.readableBytes() > 0) {
+      while (this.cumulation.readableBytes() > 0) {
         if (this.stage == Stage.READ_N_LENGTH) {
-          if (this.buffer.readableBytes() >= 4) {
-            this.metadataLength = this.buffer.readInt();
+          if (this.cumulation.readableBytes() >= 4) {
+            this.metadataLength = this.cumulation.readInt();
             this.stage = Stage.READ_METADATA;
-            this.buffer.discardReadComponents();
           } else {
             break;
           }
         }
 
         if (this.stage == Stage.READ_METADATA) {
-          if (this.buffer.readableBytes() >= this.metadataLength) {
-            final ByteBuf metadataBuf = this.buffer.readRetainedSlice(this.metadataLength);
-
-            try {
-              this.metadataBytes = new byte[this.metadataLength];
-              metadataBuf.readBytes(this.metadataBytes);
-            } finally {
-              metadataBuf.release();
-            }
+          if (this.cumulation.readableBytes() >= this.metadataLength) {
+            this.metadataBytes = new byte[this.metadataLength];
+            this.cumulation.readBytes(this.metadataBytes);
             this.stage = Stage.READ_M_LENGTH;
-            this.buffer.discardReadComponents();
           } else {
             break;
           }
         }
 
         if (this.stage == Stage.READ_M_LENGTH) {
-          if (this.buffer.readableBytes() >= 4) {
-            this.dataLength = this.buffer.readUnsignedInt(); // 4 bytes unsigned
-            this.stage = Stage.READ_DATA;
+          if (this.cumulation.readableBytes() >= 4) {
+            this.dataLength = this.cumulation.readUnsignedInt(); // 4 bytes unsigned
             this.dataRead = 0;
-            this.innerDemand.set(0);
 
-            this.dataSink = Sinks.many().unicast().onBackpressureBuffer();
+            if (this.dataLength == 0) {
+              // Empty file
+              final Flux<ByteBuf> dataStream = Flux.empty();
+              final RawFile file = new RawFile(this.metadataBytes, this.dataLength, dataStream);
+              this.outerSink.next(file);
+              this.stage = Stage.READ_N_LENGTH;
+              this.metadataBytes = null;
+              this.metadataLength = 0;
+              this.dataLength = 0;
+              this.dataRead = 0;
+            } else if (this.dataLength <= 4 * 1024 * 1024) { // 4MB
+              // Small file -> wait for all data
+              this.stage = Stage.WAIT_FOR_DATA_FAST_PATH;
+            } else {
+              // Large file -> stream
+              this.stage = Stage.READ_DATA;
+              this.dataSink = Sinks.many().unicast().onBackpressureBuffer();
+              final Flux<ByteBuf> dataStream = this.dataSink.asFlux().doOnCancel(() -> {
+              });
+              final RawFile file = new RawFile(this.metadataBytes, this.dataLength, dataStream);
+              this.outerSink.next(file);
+            }
+          } else {
+            break;
+          }
+        }
 
-            final Flux<ByteBuf> dataStream = this.dataSink.asFlux().doOnRequest(n -> {
-              this.innerDemand.addAndGet(n);
-              this.request(1);
-            }).doOnCancel(() -> {
-              // If the consumer cancels the file download midway, we MUST drain the rest
-              // of the bytes from the network socket to avoid corrupting the stream for the
-              // next file.
-              this.innerDemand.set(Long.MAX_VALUE); // Fake infinite demand to drain
-              this.request(1); // Wake up Netty
-            });
-
+        if (this.stage == Stage.WAIT_FOR_DATA_FAST_PATH) {
+          if (this.cumulation.readableBytes() >= this.dataLength) {
+            final ByteBuf completeData = this.cumulation.readRetainedSlice((int) this.dataLength);
+            final Flux<ByteBuf> dataStream = Flux.just(completeData);
             final RawFile file = new RawFile(this.metadataBytes, this.dataLength, dataStream);
-
             this.outerSink.next(file);
-            this.buffer.discardReadComponents();
+            this.stage = Stage.READ_N_LENGTH;
+            this.metadataBytes = null;
+            this.metadataLength = 0;
+            this.dataLength = 0;
+            this.dataRead = 0;
           } else {
             break;
           }
@@ -200,17 +273,15 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
         if (this.stage == Stage.READ_DATA) {
           final long remainingData = this.dataLength - this.dataRead;
           if (remainingData > 0) {
-            final int toRead = (int) Math.min(this.buffer.readableBytes(), remainingData);
+            final int toRead = (int) Math.min(this.cumulation.readableBytes(), remainingData);
             if (toRead > 0) {
-              final ByteBuf dataChunk = this.buffer.readRetainedSlice(toRead);
+              final ByteBuf dataChunk = this.cumulation.readRetainedSlice(toRead);
               if (this.dataSink.tryEmitNext(dataChunk).isFailure()) {
                 // If the sink is cancelled or overflows, we must release the chunk to prevent
                 // memory leaks
                 dataChunk.release();
               }
               this.dataRead += toRead;
-              this.innerDemand.decrementAndGet();
-              this.buffer.discardReadComponents();
             }
           }
           if (this.dataRead == this.dataLength) {
@@ -227,10 +298,10 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
         }
       }
 
-      if (this.stage != Stage.READ_DATA) {
-        this.request(1);
-      } else if (this.innerDemand.get() > 0 && this.buffer.readableBytes() == 0) {
-        this.request(1);
+      // Compact: release fully consumed cumulation to avoid holding references
+      if (this.cumulation != null && !this.cumulation.isReadable()) {
+        this.cumulation.release();
+        this.cumulation = null;
       }
     }
   }
