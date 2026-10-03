@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
 import fr.jdiot.dev.flux.client.FluxClientImpl;
@@ -129,7 +130,7 @@ public class FluxBridgeIT {
     Assertions.assertEquals("BridgeABridgeB", results.get(0));
   }
 
-  @Test
+  @RepeatedTest(2)
   void testBridgeScenario5_3BridgeWithFramedFileCodec() throws InterruptedException, IOException {
     final String fluxId = "bridge-flux-dicom-it-001";
 
@@ -198,7 +199,7 @@ public class FluxBridgeIT {
         "Server should have intercepted the SUCCESS ack");
   }
 
-  @Test
+  @RepeatedTest(2)
   void testBridgeScenario5_3BridgeWithFramedFileCodecChunked() throws InterruptedException, IOException {
     final String fluxId = "bridge-flux-dicom-chunked-it-001";
 
@@ -210,22 +211,19 @@ public class FluxBridgeIT {
     FluxBridgeIT.dicomFiles.forEach(file -> {
       final byte[] data = file.data();
       final int chunkSize = 65536; // 64 KB
-      
+
       filesToPush.add(FluxFile.<String>builder().metadata(file.name()).dataLength(data.length)
-          .dataStream(Flux.generate(
-              () -> 0,
-              (state, sink) -> {
-                if (state >= data.length) {
-                  sink.complete();
-                  return state;
-                }
-                int length = Math.min(chunkSize, data.length - state);
-                byte[] chunkData = new byte[length];
-                System.arraycopy(data, state, chunkData, 0, length);
-                sink.next(Unpooled.wrappedBuffer(chunkData));
-                return state + length;
-              }
-          )).build());
+          .dataStream(Flux.generate(() -> 0, (state, sink) -> {
+            if (state >= data.length) {
+              sink.complete();
+              return state;
+            }
+            final int length = Math.min(chunkSize, data.length - state);
+            final byte[] chunkData = new byte[length];
+            System.arraycopy(data, state, chunkData, 0, length);
+            sink.next(Unpooled.wrappedBuffer(chunkData));
+            return state + length;
+          })).build());
     });
 
     final Flux<ByteBuf> pullStream = FluxBridgeIT.client1.pull(fluxId);
@@ -257,7 +255,8 @@ public class FluxBridgeIT {
 
     Assertions.assertTrue(latch.await(5, TimeUnit.SECONDS), "Client 1 pull did not complete in time");
 
-    FluxBridgeIT.log.info("Total end-to-end chunked bridge transfer time: {} ms", System.currentTimeMillis() - startTime);
+    FluxBridgeIT.log.info("Total end-to-end chunked bridge transfer time: {} ms",
+        System.currentTimeMillis() - startTime);
 
     Assertions.assertEquals(filesToPush.size(), results.size());
 

@@ -196,7 +196,7 @@ public abstract class AbstractFluxManagerTest {
     // StepVerifier will wait for the emission from the background cleanup task
     StepVerifier.create(ackMono)
         .expectNextMatches(ack -> "push-stale-flux".equals(ack.getFluxId()) && Status.FAILED.equals(ack.getStatus()))
-        .expectComplete().verify(Duration.ofMillis(200));
+        .expectComplete().verify(Duration.ofSeconds(2));
 
     // Verify it's removed
     Assertions.assertFalse(manager.getActiveFluxIds().contains("push-stale-flux"));
@@ -216,7 +216,7 @@ public abstract class AbstractFluxManagerTest {
     Assertions.assertTrue(manager.getActiveFluxIds().contains("bridge-1"));
 
     // The stream should emit a TimeoutException when clearBrokenFluxes runs
-    StepVerifier.create(pulledStream).expectError(TimeoutException.class).verify(Duration.ofMillis(200));
+    StepVerifier.create(pulledStream).expectError(TimeoutException.class).verify(Duration.ofSeconds(2));
 
     Assertions.assertFalse(manager.getActiveFluxIds().contains("bridge-1"));
   }

@@ -1,6 +1,7 @@
 package fr.jdiot.dev.flux.client;
 
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import fr.jdiot.dev.flux.codec.AvroPojoCodec;
@@ -13,6 +14,7 @@ import io.netty.channel.ChannelOption;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.resources.ConnectionProvider;
@@ -52,7 +54,8 @@ public class FluxClientImpl implements FluxClient {
 
       // Keep connections warm indefinitely
       final long pingInterval = Math.max(10_000, properties.getPoolMaxIdleTimeMillis() - 10_000);
-      this.keepAliveDisposable = Flux.interval(Duration.ofMillis(pingInterval))
+      this.keepAliveDisposable = Flux
+          .interval(Duration.ofMillis(pingInterval), Schedulers.newSingle("ping-keepalive", true))
           .flatMap(_ -> Flux.range(0, properties.getPoolStandbyConnections())
               .flatMap(_ -> this.httpClient.get().uri("/api/v1/ping").responseContent().aggregate().asString()))
           .subscribe(_ -> {
@@ -64,26 +67,34 @@ public class FluxClientImpl implements FluxClient {
   public Flux<ByteBuf> pull(final String fluxId) {
     final AtomicLong t0 = new AtomicLong();
     final AtomicLong t1 = new AtomicLong();
+    final AtomicInteger nbElement = new AtomicInteger();
+    final AtomicLong totalBytes = new AtomicLong();
 
     return this.httpClient.headers(h -> h.add("Accept", "application/octet-stream")).get().uri("/api/v1/flux/" + fluxId)
         .responseConnection((res, connection) -> {
           if (res.status().code() >= 400) {
             return Flux.error(new FluxException("Failed to pull flux: " + res.status().code()));
           }
-          return connection.inbound().receive().doOnSubscribe(_ -> t1.set(System.nanoTime())).doOnComplete(() -> {
-            this.sendAck(AcknowledgementUtils.success(fluxId), t0, t1);
+          return connection.inbound().receive().doOnSubscribe(_ -> t1.set(System.nanoTime())).doOnNext(buf -> {
+            nbElement.incrementAndGet();
+            totalBytes.addAndGet(buf.readableBytes());
+          }).doOnComplete(() -> {
+            this.sendAck(nbElement, totalBytes, AcknowledgementUtils.success(fluxId), t0, t1);
           }).doOnError(_ -> {
-            this.sendAck(AcknowledgementUtils.failed(fluxId), t0, t1);
+            this.sendAck(nbElement, totalBytes, AcknowledgementUtils.failed(fluxId), t0, t1);
           }).doOnCancel(() -> {
-            this.sendAck(AcknowledgementUtils.partial(fluxId), t0, t1);
+            this.sendAck(nbElement, totalBytes, AcknowledgementUtils.partial(fluxId), t0, t1);
           });
         }).doOnSubscribe(_ -> t0.set(System.nanoTime()));
   }
 
-  private void sendAck(final Acknowledgement ack, final AtomicLong t0, final AtomicLong t1) {
+  private void sendAck(final AtomicInteger nbElement, final AtomicLong totalBytes, final Acknowledgement ack,
+      final AtomicLong t0, final AtomicLong t1) {
     final long t2 = System.nanoTime();
     ack.setPullClientPreProcessingTimeMs((t1.get() - t0.get()) / 1_000_000);
     ack.setPullClientProcessingTimeMs((t2 - t1.get()) / 1_000_000);
+    ack.setNbElement(nbElement.get());
+    ack.setTotalBytes(totalBytes.get());
     this.sendAck(ack, t2);
   }
 

@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -52,6 +53,13 @@ public abstract class AbstractFluxManager implements FluxManager {
   @Override
   public void setAckHandler(final Consumer<Acknowledgement> ackHandler) {
     this.ackHandler = ackHandler;
+  }
+
+  protected void emitAck(final AtomicInteger nbElement, final AtomicLong totalBytes, final FluxState state,
+      final Acknowledgement ack) {
+    ack.setNbElement(nbElement.get());
+    ack.setTotalBytes(totalBytes.get());
+    this.emitAck(state, ack);
   }
 
   protected void emitAck(final FluxState state, final Acknowledgement ack) {
@@ -115,18 +123,23 @@ public abstract class AbstractFluxManager implements FluxManager {
   protected Mono<Acknowledgement> internalRegisterFlux(final String fluxId, final Supplier<Flux<ByteBuf>> processor) {
     this.validateFluxId(fluxId);
     final FluxState state = this.activeFluxes.computeIfAbsent(fluxId, _ -> new FluxState());
+    final AtomicInteger nbElement = new AtomicInteger();
+    final AtomicLong totalBytes = new AtomicLong();
 
-    final Flux<ByteBuf> hookedFLux = processor.get().doOnCancel(() -> {
+    final Flux<ByteBuf> hookedFLux = processor.get().doOnNext(buf -> {
+      nbElement.incrementAndGet();
+      totalBytes.addAndGet(buf.readableBytes());
+    }).doOnCancel(() -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
-        this.emitAck(state, AcknowledgementUtils.partial(fluxId));
+        this.emitAck(nbElement, totalBytes, state, AcknowledgementUtils.partial(fluxId));
       }
     }).doOnError(_ -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
-        this.emitAck(state, AcknowledgementUtils.failed(fluxId));
+        this.emitAck(nbElement, totalBytes, state, AcknowledgementUtils.failed(fluxId));
       }
     }).doOnComplete(() -> {
       if (fluxId != null && fluxId.startsWith("push-")) {
-        this.emitAck(state, AcknowledgementUtils.success(fluxId));
+        this.emitAck(nbElement, totalBytes, state, AcknowledgementUtils.success(fluxId));
       }
     });
 
