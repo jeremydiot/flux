@@ -13,7 +13,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 import reactor.core.publisher.SignalType;
 import reactor.core.publisher.Sinks;
-import reactor.util.concurrent.Queues;
 
 public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
 
@@ -22,7 +21,7 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
   private final int prefetch;
 
   public SequentialFluxCodec(final PojoCodec<M> metadataCodec) {
-    this(metadataCodec, Queues.SMALL_BUFFER_SIZE, Queues.SMALL_BUFFER_SIZE);
+    this(metadataCodec, 32, 32);
   }
 
   public SequentialFluxCodec(final PojoCodec<M> metadataCodec, final int maxConcurrency, final int prefetch) {
@@ -56,7 +55,7 @@ public class SequentialFluxCodec<M> implements FluxCodec<FluxFile<M>> {
           return (ByteBuf) combined;
         }
         return chunk;
-      }).doOnError(e -> {
+      }).doOnError(_ -> {
         if (first.get() && header.refCnt() > 0) {
           header.release();
         }

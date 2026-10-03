@@ -152,14 +152,14 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>${maven-surefire-plugin.version}</version>
         <configuration>
-          <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+          <argLine>--enable-native-access=ALL-UNNAMED -Xms8g -Xmx8g -XX:+UseParallelGC -XX:+AlwaysPreTouch</argLine>
         </configuration>
       </plugin>
       <plugin>
         <artifactId>maven-failsafe-plugin</artifactId>
         <version>${maven-failsafe-plugin.version}</version>
         <configuration>
-          <argLine>--enable-native-access=ALL-UNNAMED</argLine>
+          <argLine>--enable-native-access=ALL-UNNAMED -Xms8g -Xmx8g -XX:+UseParallelGC -XX:+AlwaysPreTouch</argLine>
           <includes>
             <include>**/*IT.java</include>
           </includes>

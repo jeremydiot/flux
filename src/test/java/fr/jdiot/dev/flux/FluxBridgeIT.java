@@ -198,4 +198,82 @@ public class FluxBridgeIT {
         "Server should have intercepted the SUCCESS ack");
   }
 
+  @Test
+  void testBridgeScenario5_3BridgeWithFramedFileCodecChunked() throws InterruptedException, IOException {
+    final String fluxId = "bridge-flux-dicom-chunked-it-001";
+
+    final PojoCodec<String> stringCodec = new AvroPojoCodec<>(String.class);
+    final SequentialFluxCodec<String> framedCodec = new SequentialFluxCodec<>(stringCodec);
+
+    // We read all files from the directory to test, but we chunk the byte array
+    final List<FluxFile<String>> filesToPush = Collections.synchronizedList(new ArrayList<>());
+    FluxBridgeIT.dicomFiles.forEach(file -> {
+      final byte[] data = file.data();
+      final int chunkSize = 65536; // 64 KB
+      
+      filesToPush.add(FluxFile.<String>builder().metadata(file.name()).dataLength(data.length)
+          .dataStream(Flux.generate(
+              () -> 0,
+              (state, sink) -> {
+                if (state >= data.length) {
+                  sink.complete();
+                  return state;
+                }
+                int length = Math.min(chunkSize, data.length - state);
+                byte[] chunkData = new byte[length];
+                System.arraycopy(data, state, chunkData, 0, length);
+                sink.next(Unpooled.wrappedBuffer(chunkData));
+                return state + length;
+              }
+          )).build());
+    });
+
+    final Flux<ByteBuf> pullStream = FluxBridgeIT.client1.pull(fluxId);
+
+    final CountDownLatch latch = new CountDownLatch(1);
+    final List<FluxFile<String>> results = new ArrayList<>();
+
+    // Decode the pull stream
+    final Flux<FluxFile<String>> decodedStream = framedCodec.decode(pullStream);
+
+    decodedStream.flatMapSequential(decodedFile -> decodedFile.getDataStream().reduce(0, (count, buf) -> {
+      count += buf.readableBytes();
+      buf.release();
+      return count;
+    }).map(count -> FluxFile.<String>builder().metadata(decodedFile.getMetadata()).dataLength(count)
+        .dataStream(Flux.empty()).build())).subscribe(results::add, _ -> {
+        }, () -> latch.countDown());
+
+    final Flux<ByteBuf> fluxToPush = framedCodec.encode(Flux.fromIterable(filesToPush));
+
+    final long startTime = System.currentTimeMillis();
+
+    final Mono<Acknowledgement> pushAck = FluxBridgeIT.client2.push(fluxId, fluxToPush)
+        .doOnNext(ack -> FluxBridgeIT.log.info("\n{}", AcknowledgementUtils.pritableReport(ack)));
+
+    StepVerifier.create(pushAck)
+        .expectNextMatches(ack -> Status.SUCCESS.equals(ack.getStatus()) && fluxId.equals(ack.getFluxId()))
+        .verifyComplete();
+
+    Assertions.assertTrue(latch.await(5, TimeUnit.SECONDS), "Client 1 pull did not complete in time");
+
+    FluxBridgeIT.log.info("Total end-to-end chunked bridge transfer time: {} ms", System.currentTimeMillis() - startTime);
+
+    Assertions.assertEquals(filesToPush.size(), results.size());
+
+    filesToPush.sort(Comparator.comparing(FluxFile::getMetadata));
+    results.sort(Comparator.comparing(FluxFile::getMetadata));
+
+    for (int i = 0; i < filesToPush.size(); i++) {
+      Assertions.assertEquals(filesToPush.get(i).getMetadata(), results.get(i).getMetadata());
+      Assertions.assertEquals(filesToPush.get(i).getDataLength(), results.get(i).getDataLength());
+    }
+
+    // Verify that the server intercepted the success ack
+    Assertions.assertTrue(
+        FluxBridgeIT.interceptedAcks.stream()
+            .anyMatch(ack -> fluxId.equals(ack.getFluxId()) && Status.SUCCESS.equals(ack.getStatus())),
+        "Server should have intercepted the SUCCESS ack");
+  }
+
 }
